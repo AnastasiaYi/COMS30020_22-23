@@ -3,14 +3,14 @@
 #include <Utils.h>
 #include <fstream>
 #include <vector>
-// Task 4
+// Lab 2 Task 4
 #include <glm/glm.hpp>
 #include "glm/ext.hpp"
 
 #define WIDTH 320
 #define HEIGHT 240
 
-// Task 2
+// Lab 2 Task 2
 std::vector<float> interpolateSingleFloats(float from, float to, float numberOfValues) {
 	std::vector<float> result;
 	float stepSize = (to - from)/(numberOfValues-1);
@@ -20,17 +20,17 @@ std::vector<float> interpolateSingleFloats(float from, float to, float numberOfV
 	return result;
 }
 
-// Task 4
+// Lab 2 Task 4
 std::vector<glm::vec3> interpolateThreeElementValues(glm::vec3 from, glm::vec3 to, float numberOfValues){
 	std::vector<glm::vec3> result;
 	glm::vec3 stepSize = (to - from)/(numberOfValues-1);
-	for (float i = 0; i < numberOfValues; i++){ // why must i be float
+	for (float i = 0; i < numberOfValues; i++){ // i must be float. Can't multiply int with float in c++.
 		result.push_back(from + i*stepSize);
 	}
 	return result;
 }
 
-// Task 3
+// Lab 2 Task 3
 // void draw(DrawingWindow &window) {
 // 	window.clearPixels();
 // 	std::vector<float> colorIndex = interpolateSingleFloats(255, 0, window.width);
@@ -43,7 +43,7 @@ std::vector<glm::vec3> interpolateThreeElementValues(glm::vec3 from, glm::vec3 t
 // 	}
 // }
 
-// Task 5
+// Lab 2 Task 5
 void draw(DrawingWindow &window) {
 	window.clearPixels();
 	glm::vec3 topLeft(255, 0, 0);        // red 
@@ -77,12 +77,12 @@ void handleEvent(SDL_Event event, DrawingWindow &window) {
 int main(int argc, char *argv[]) {
 	DrawingWindow window = DrawingWindow(WIDTH, HEIGHT, false);
 	SDL_Event event;
-	// Task 2 test
+	// Lab 2 Task 2 test
 	std::vector<float> result;
 	result = interpolateSingleFloats(2.2, 8.5, 7);
 	for(size_t i=0; i<result.size(); i++) std::cout << result[i] << " ";
 	std::cout << std::endl;
-	// Task 4 test
+	// Lab 2 Task 4 test
 	glm::vec3 from(1.0, 4.0, 9.2);
 	glm::vec3 to(4.0, 1.0, 9.8);
 	std::vector<glm::vec3> result2;
