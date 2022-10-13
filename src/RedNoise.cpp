@@ -11,6 +11,8 @@
 #include <Colour.h>
 // Lab 3 Task 3
 #include <CanvasTriangle.h>
+// Lab 3 Task 5
+#include <TextureMap.h>
 
 #define WIDTH 320
 #define HEIGHT 240
@@ -19,7 +21,7 @@
 // Task 2 
 std::vector<glm::vec2> interpolateTwoElementValues(glm::vec2 from, glm::vec2 to, float numberOfValues){
 	std::vector<glm::vec2> result;
-	glm::vec2 stepSize = (to - from)/(numberOfValues-1);
+	glm::vec2 stepSize = (to-from)/(numberOfValues-1);
 	for (float i = 0; i < numberOfValues; i++){
 		result.push_back(from + i*stepSize);
 	}
@@ -28,9 +30,9 @@ std::vector<glm::vec2> interpolateTwoElementValues(glm::vec2 from, glm::vec2 to,
 
 // Task 4 
 CanvasTriangle sortTriangle (CanvasTriangle triangle){
-	while (!((triangle.v0().y>triangle.v1().y)&&(triangle.v1().y>triangle.v2().y))){
-		if (triangle.v0().y<triangle.v1().y) std::swap(triangle.v0().y,triangle.v1().y);
-		if (triangle.v1().y<triangle.v2().y) std::swap(triangle.v1().y,triangle.v2().y);
+	while (!((triangle.v0().y<triangle.v1().y)&&(triangle.v1().y<triangle.v2().y))){
+		if (triangle.v0().y>triangle.v1().y) std::swap(triangle.v0(),triangle.v1());
+		if (triangle.v1().y>triangle.v2().y) std::swap(triangle.v1(), triangle.v2());
 	}
 	CanvasTriangle sortedTriangle = {triangle.v0(), triangle.v1(), triangle.v2()};
 	return sortedTriangle;
@@ -43,7 +45,7 @@ CanvasPoint findMiddlePoint (CanvasTriangle triangle){
 	float y1 = triangle.v1().y;
 	float y2 = triangle.v2().y;
 	float x = x2+(y1-y2)*(x0-x2)/(y0-y2);
-	return {x,y1};
+	return CanvasPoint{x,y1};
 }
 
 CanvasTriangle generateRandomTriangle(DrawingWindow &window){
@@ -77,14 +79,19 @@ std::vector<glm::vec3> interpolateThreeElementValues(glm::vec3 from, glm::vec3 t
 
 // Lab 3 Task 2
 void drawLine (DrawingWindow &window, CanvasPoint from, CanvasPoint to, Colour color){
-	std::vector<glm::vec2> interpolated = 
-	interpolateTwoElementValues({from.x, from.y},
-								{to.x, to.y}, 
-								std::max(abs(to.x-from.x), abs(to.y-from.y)));
-	uint32_t colour = (255 << 24) + (color.red << 16) + (color.green << 8) + color.blue;
-	for (float i = 0.0; i < interpolated.size(); i++) {
-		window.setPixelColour(interpolated[i][0], interpolated[i][1], colour);
+	float xDiff = to.x - from.x;
+	float yDiff = to.y - from.y;
+	float numberOfSteps = std::max(abs(xDiff), abs(yDiff));
+	float xStepSize = xDiff/numberOfSteps;
+	float yStepSize = yDiff/numberOfSteps;
+
+	for (float i = 0.0; i < numberOfSteps; i++) {
+		float x = from.x + (xStepSize*i);
+		float y = from.y + (yStepSize*i);
+		uint32_t c = (255 << 24) + (color.red << 16) + (color.green << 8) + color.blue;
+		window.setPixelColour(round(x), round(y), c);
 	}
+
 }
 
 // Lab 3 Task 3
@@ -94,11 +101,16 @@ void drawStrokedTriangle (DrawingWindow &window, CanvasPoint v0, CanvasPoint v1,
 	drawLine(window, v0, v2, color);
 }
 
+// Task 4 helper function
 void drawHalfTriangle (DrawingWindow &window, CanvasPoint h0, CanvasPoint h1, CanvasPoint h2, Colour color){
-	std::vector<glm::vec2> h0h1  = interpolateTwoElementValues({h0.x, h0.y}, {h1.x, h1.y}, h1.y-h0.y);
-	std::vector<glm::vec2> h0h2  = interpolateTwoElementValues({h0.x, h0.y}, {h2.x, h2.y}, h1.y-h0.y);
-	for (float i = 0.0; i < h0h1.size(); i++){
-		drawLine(window, {h0h1[i][0], h0h1[i][1]}, {h0h2[i][0], h0h2[i][1]}, color);
+	glm::vec2 from = {h0.x, h0.y};
+	glm::vec2 to1 = {h1.x, h1.y};
+	glm::vec2 to2 = {h2.x, h2.y};
+	float numberOfValues = abs(h1.y - h0.y)+1;
+	std::vector<glm::vec2> h0h1  = interpolateTwoElementValues(from, to1, numberOfValues);
+	std::vector<glm::vec2> h0h2  = interpolateTwoElementValues(from, to2, numberOfValues);
+	for (float i = 0.0; i < numberOfValues; i++){		
+		drawLine(window, {round(h0h1[i][0]), h0h1[i][1]}, {h0h2[i][0], h0h2[i][1]}, color);
 	}
 }
 
@@ -107,10 +119,49 @@ void drawFilledTriangle (DrawingWindow &window, CanvasTriangle triangle, Colour 
 	Colour white = {255, 255, 255};
 	triangle = sortTriangle(triangle);
 	CanvasPoint m = findMiddlePoint(triangle);
+	drawHalfTriangle(window, triangle.v0(), m, triangle.v1(), color);
+	drawHalfTriangle(window, triangle.v2(), m, triangle.v1(), color);
 	drawStrokedTriangle(window, triangle.v0(), triangle.v1(), triangle.v2(), white);
-	// drawHalfTriangle(window, triangle.v0(), m, triangle.v1(), color);
-	drawHalfTriangle(window, triangle.v2(), triangle.v1(), m, color);
 }
+
+// Task 5 helper function
+// TODO: solve the skipped pixels.
+void drawHalfTextureTriangle(DrawingWindow &window, CanvasPoint t0, CanvasPoint t1, CanvasPoint t2, TextureMap textureMap, glm::mat3x3 affine){
+	float h = abs(t0.y-t1.y);
+	std::vector<glm::vec2> t0t1 = interpolateTwoElementValues({t0.x,t0.y},{t1.x,t1.y},h+1); // h+1 to solve skipped lines
+	std::vector<glm::vec2> t0t2 = interpolateTwoElementValues({t0.x,t0.y},{t2.x,t2.y},h+1);
+	for (float i=0.0; i < h+1; i++){
+		std::vector<glm::vec2> line = interpolateTwoElementValues({t0t1[i].x,t0t1[i].y}, {t0t2[i].x,t0t2[i].y}, abs(t0t1[i].x-t0t2[i].x));
+		for (float j=0.0; j<line.size(); j++){
+			float x = line[j][0];
+			float y = line[j][1];
+			glm::mat3x3 canvas = glm::mat3{{x,0,0},{y,0,0},{1,0,0}};
+			glm::mat3x3 texture = canvas*affine;
+			int tx = texture[0][0];
+			int ty = texture[1][0];
+			uint32_t color = textureMap.pixels[round(ty*textureMap.width+tx)];
+			window.setPixelColour(x, y, color);
+		}
+	}
+}
+
+// Lab 3 Task 5
+void drawTextureTriangle(DrawingWindow &window, CanvasPoint v0, CanvasPoint v1, CanvasPoint v2, TextureMap textureMap){
+	glm::mat3x3 texture = {{v0.texturePoint.x,v1.texturePoint.x,v2.texturePoint.x},
+						   {v0.texturePoint.y,v1.texturePoint.y,v2.texturePoint.y},
+							{1,1,1}};
+	glm::mat3x3 canvas = {{v0.x,v1.x,v2.x}, {v0.y,v1.y,v2.y},{1,1,1}};
+	glm::mat3x3 canvasInverse = glm::inverse(canvas);
+	glm::mat3x3 affine = canvasInverse*texture;// should be texture*canvasInverse. why the other way around?
+	CanvasTriangle sortedTriangle = sortTriangle(CanvasTriangle(v0,v1,v2));
+	CanvasPoint m = findMiddlePoint(sortedTriangle);
+	// drawStrokedTriangle(window,sortedTriangle.v0(),m,sortedTriangle.v1(), {255,255,255});
+	drawHalfTextureTriangle(window, sortedTriangle.v0(),m,sortedTriangle.v1(),textureMap, affine);
+	drawHalfTextureTriangle(window, sortedTriangle.v2(),m,sortedTriangle.v1(),textureMap, affine);
+	drawStrokedTriangle(window,sortedTriangle.v0(),sortedTriangle.v1(), sortedTriangle.v2(), {255,255,255});
+}
+
+
 
 void handleEvent(SDL_Event event, DrawingWindow &window) {
 	Colour color = {rand()%255, rand()%255, rand()%255};
@@ -150,6 +201,17 @@ int main(int argc, char *argv[]) {
 		// drawLine(window, {w/2,0.0}, {w/2,h}, color); // A vertical line all the way down the middle of the screen.
 		// drawLine(window, {w/3,h/2}, {2*w/3,h/2}, color); // A horizontal line a third the width of the screen, centred both horizontally and vertically.
 		// drawLine(window, {w,0.0}, {0.0,h}, color); // A line from the top-right corner to the bottom-left corner.
+
+		// Lab 3 task 5
+		CanvasPoint v0 = CanvasPoint(160,10);
+		CanvasPoint v1 = CanvasPoint(300,230);
+		CanvasPoint v2 = CanvasPoint(10,150);
+		v0.texturePoint = TexturePoint(195, 5);
+		v1.texturePoint = TexturePoint(395, 380);
+		v2.texturePoint = TexturePoint(65, 330);
+		TextureMap textureMap = TextureMap("texture.ppm");
+		drawTextureTriangle(window, v0, v1, v2, textureMap);
+
 		// Need to render the frame at the end, or nothing actually gets shown on the screen !
 		window.renderFrame();
 	}
