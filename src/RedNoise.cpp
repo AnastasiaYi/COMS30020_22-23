@@ -21,7 +21,7 @@
 // Task 2 
 std::vector<glm::vec2> interpolateTwoElementValues(glm::vec2 from, glm::vec2 to, float numberOfValues){
 	std::vector<glm::vec2> result;
-	glm::vec2 stepSize = (to-from)/(numberOfValues-1);
+	glm::vec2 stepSize = (to-from)/(numberOfValues);
 	for (float i = 0; i < numberOfValues; i++){
 		result.push_back(from + i*stepSize);
 	}
@@ -202,7 +202,7 @@ int main(int argc, char *argv[]) {
 		// drawLine(window, {w/3,h/2}, {2*w/3,h/2}, color); // A horizontal line a third the width of the screen, centred both horizontally and vertically.
 		// drawLine(window, {w,0.0}, {0.0,h}, color); // A line from the top-right corner to the bottom-left corner.
 
-		// Lab 3 task 5
+		// Lab 3 task 6
 		CanvasPoint v0 = CanvasPoint(160,10);
 		CanvasPoint v1 = CanvasPoint(300,230);
 		CanvasPoint v2 = CanvasPoint(10,150);
