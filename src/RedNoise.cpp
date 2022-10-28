@@ -20,12 +20,23 @@
 #include <map>
 
 // #define WIDTH 320
-#define WIDTH 640
 // #define HEIGHT 240
-#define HEIGHT 480
+// #define WIDTH 640
+// #define HEIGHT 480
+#define WIDTH 960
+#define HEIGHT 720
+
 // Lab 4
 #define LOAD_SCALE 0.17
-#define IMAGE_SCALE 640
+#define IMAGE_SCALE 400
+#define FOCAL_LENGTH 2.0
+float DEPTH_BUFFER[HEIGHT][WIDTH];
+
+// Lab 5
+glm::vec3 CAMERA_POSITION = glm::vec3(0,0,4);
+float cosine = cos(0.05);
+float sine = sin(0.05);
+
 
 // Lab 3 helper function
 // Task 2 
@@ -51,11 +62,15 @@ CanvasTriangle sortTriangle (CanvasTriangle triangle){
 CanvasPoint findMiddlePoint (CanvasTriangle triangle){
 	float x0 = triangle.v0().x;
 	float x2 = triangle.v2().x;
+	float z0 = 1/triangle.v0().depth;
+	float z2 = 1/triangle.v2().depth;
 	float y0 = triangle.v0().y;
 	float y1 = triangle.v1().y;
 	float y2 = triangle.v2().y;
 	float x = x2+(y1-y2)*(x0-x2)/(y0-y2);
-	return CanvasPoint{x,y1};
+	float d = z0-(y0-y1)*(z0-z2)/(y0-y2);
+	CanvasPoint c = CanvasPoint(x, y1, 1/d);
+	return c;
 }
 
 CanvasTriangle generateRandomTriangle(DrawingWindow &window){
@@ -80,7 +95,7 @@ std::vector<float> interpolateSingleFloats(float from, float to, float numberOfV
 // Lab 2 Task 4
 std::vector<glm::vec3> interpolateThreeElementValues(glm::vec3 from, glm::vec3 to, float numberOfValues){
 	std::vector<glm::vec3> result;
-	glm::vec3 stepSize = (to - from)/(numberOfValues-1);
+	glm::vec3 stepSize = (to - from)/(numberOfValues);
 	for (float i = 0; i < numberOfValues; i++){ // i must be float. Can't multiply int with float in c++.
 		result.push_back(from + i*stepSize);
 	}
@@ -91,15 +106,21 @@ std::vector<glm::vec3> interpolateThreeElementValues(glm::vec3 from, glm::vec3 t
 void drawLine (DrawingWindow &window, CanvasPoint from, CanvasPoint to, Colour color){
 	float xDiff = to.x - from.x;
 	float yDiff = to.y - from.y;
+	float zDiff = 1/to.depth - 1/from.depth;
 	float numberOfSteps = std::max(abs(xDiff), abs(yDiff));
 	float xStepSize = xDiff/numberOfSteps;
 	float yStepSize = yDiff/numberOfSteps;
-
+	float zStepSize = zDiff/numberOfSteps;
 	for (float i = 0.0; i < numberOfSteps; i++) {
 		float x = from.x + (xStepSize*i);
 		float y = from.y + (yStepSize*i);
-		uint32_t c = (255 << 24) + (color.red << 16) + (color.green << 8) + color.blue;
-		window.setPixelColour(round(x), round(y), c);
+		float depth = (1/from.depth + (zStepSize*i));
+		if ((DEPTH_BUFFER[int(ceill(y))][int(floor(x))] <= depth)|(DEPTH_BUFFER[int(ceill(y))][int(floor(x))] == 0)){
+			uint32_t c = (255 << 24) + (color.red << 16) + (color.green << 8) + color.blue;
+			window.setPixelColour(x, y, c);
+			DEPTH_BUFFER[int(ceill(y))][int(floor(x))] = depth;
+		}
+		
 	}
 
 }
@@ -113,14 +134,16 @@ void drawStrokedTriangle (DrawingWindow &window, CanvasPoint v0, CanvasPoint v1,
 
 // Task 4 helper function
 void drawHalfTriangle (DrawingWindow &window, CanvasPoint h0, CanvasPoint h1, CanvasPoint h2, Colour color){
-	glm::vec2 from = {h0.x, h0.y};
-	glm::vec2 to1 = {h1.x, h1.y};
-	glm::vec2 to2 = {h2.x, h2.y};
-	float numberOfValues = abs(h1.y - h0.y)+1;
-	std::vector<glm::vec2> h0h1  = interpolateTwoElementValues(from, to1, numberOfValues);
-	std::vector<glm::vec2> h0h2  = interpolateTwoElementValues(from, to2, numberOfValues);
-	for (float i = 0.0; i < numberOfValues; i++){		
-		drawLine(window, {h0h1[i][0], h0h1[i][1]}, {h0h2[i][0], h0h2[i][1]}, color);
+	glm::vec3 from = {h0.x, h0.y, 1/h0.depth};
+	glm::vec3 to1 = {h1.x, h1.y, 1/h1.depth};
+	glm::vec3 to2 = {h2.x, h2.y,1/h2.depth};
+	float numberOfValues = abs(h1.y - h0.y);
+	std::vector<glm::vec3> h0h1  = interpolateThreeElementValues(from, to1, numberOfValues);
+	std::vector<glm::vec3> h0h2  = interpolateThreeElementValues(from, to2, numberOfValues);
+	for (float i = 0.0; i < numberOfValues; i++){
+		CanvasPoint t = CanvasPoint(h0h2[i][0], h0h2[i][1], 1/h0h2[i][2]);
+		CanvasPoint f = CanvasPoint(h0h1[i][0], h0h1[i][1], 1/h0h1[i][2]);
+		drawLine(window, f,t, color);
 	}
 }
 
@@ -131,7 +154,7 @@ void drawFilledTriangle (DrawingWindow &window, CanvasTriangle triangle, Colour 
 	CanvasPoint m = findMiddlePoint(sortedTriangle);
 	drawHalfTriangle(window, sortedTriangle.v0(), m, sortedTriangle.v1(), color);
 	drawHalfTriangle(window, sortedTriangle.v2(), m, sortedTriangle.v1(), color);
-	// drawStrokedTriangle(window, sortedTriangle.v0(), sortedTriangle.v1(), sortedTriangle.v2(), white);
+	drawStrokedTriangle(window, sortedTriangle.v0(), sortedTriangle.v1(), sortedTriangle.v2(), color);
 }
 
 // Task 5 helper function
@@ -231,12 +254,11 @@ std::vector<ModelTriangle> loadOBJFile(std::string OBJfilename, std::string MTLf
 
 // Lab 4 Task 5
 CanvasPoint getCanvasIntersectionPoint(glm::vec3 cameraPosition, glm::vec3 vertexPosition, float focalLength, float imagePlaneScaling){
-	// glm::vec3 vertexP = cameraPosition-vertexPosition;
 	glm::vec3 vertexP = vertexPosition-cameraPosition;
-	// std::cout << glm::to_string(vertexP) << std::endl;
 	float u = -1*imagePlaneScaling*focalLength * vertexP.x/vertexP.z + WIDTH/2;
 	float v = imagePlaneScaling*focalLength * vertexP.y/vertexP.z + HEIGHT/2;
-	return CanvasPoint(u,v);
+	float d = 1/vertexP.z;
+	return CanvasPoint(u,v,d);
 }
 
 // Lab 4 Task 6
@@ -246,7 +268,7 @@ void pointcloud(DrawingWindow &window){
 	for (int i = 0; i < modelTriangles.size(); i++){
 		std::array<glm::vec3,3> vertices = modelTriangles[i].vertices;
 		for (int j = 0; j < vertices.size(); j++){
-			CanvasPoint c = getCanvasIntersectionPoint({0,0,4.0}, vertices[j], 2.0, IMAGE_SCALE);
+			CanvasPoint c = getCanvasIntersectionPoint(CAMERA_POSITION, vertices[j], FOCAL_LENGTH, IMAGE_SCALE);
 			window.setPixelColour(c.x,c.y,color);
 		}
 	}
@@ -260,10 +282,19 @@ void wireframeRender(DrawingWindow &window){
 		glm::vec3 v0 = vertices[0];
 		glm::vec3 v1 = vertices[1];
 		glm::vec3 v2 = vertices[2];
-		CanvasPoint c0 = getCanvasIntersectionPoint({0,0,4.0}, v0, 2.0, IMAGE_SCALE);
-		CanvasPoint c1 = getCanvasIntersectionPoint({0,0,4.0}, v1, 2.0, IMAGE_SCALE);
-		CanvasPoint c2 = getCanvasIntersectionPoint({0,0,4.0}, v2, 2.0, IMAGE_SCALE);
+		CanvasPoint c0 = getCanvasIntersectionPoint(CAMERA_POSITION, v0, FOCAL_LENGTH, IMAGE_SCALE);
+		CanvasPoint c1 = getCanvasIntersectionPoint(CAMERA_POSITION, v1, FOCAL_LENGTH, IMAGE_SCALE);
+		CanvasPoint c2 = getCanvasIntersectionPoint(CAMERA_POSITION, v2, FOCAL_LENGTH, IMAGE_SCALE);
 		drawStrokedTriangle(window,c0,c1,c2,{255,255,255});
+	}
+}
+
+// Lab 4 Task 8 Helper Function
+void cleanBuffer() {
+	for(int i = 0; i < HEIGHT; i++) {
+		for(int j = 0; j < WIDTH; j++) {
+			DEPTH_BUFFER[i][j] = 0;
+		}
 	}
 }
 
@@ -275,21 +306,96 @@ void rasterisedRender(DrawingWindow &window){
 		glm::vec3 v0 = vertices[0];
 		glm::vec3 v1 = vertices[1];
 		glm::vec3 v2 = vertices[2];
-		CanvasPoint c0 = getCanvasIntersectionPoint({0,0,4.0}, v0, 2.0, IMAGE_SCALE);
-		CanvasPoint c1 = getCanvasIntersectionPoint({0,0,4.0}, v1, 2.0, IMAGE_SCALE);
-		CanvasPoint c2 = getCanvasIntersectionPoint({0,0,4.0}, v2, 2.0, IMAGE_SCALE);
+		CanvasPoint c0 = getCanvasIntersectionPoint(CAMERA_POSITION, v0, FOCAL_LENGTH, IMAGE_SCALE);
+		CanvasPoint c1 = getCanvasIntersectionPoint(CAMERA_POSITION, v1, FOCAL_LENGTH, IMAGE_SCALE);
+		CanvasPoint c2 = getCanvasIntersectionPoint(CAMERA_POSITION, v2, FOCAL_LENGTH, IMAGE_SCALE);
 		CanvasTriangle t = CanvasTriangle(c0,c1,c2);
 		drawFilledTriangle(window,t,modelTriangles[i].colour);
 	}
 }
 
+// Lab 5 Task 3 Helper function
+void cameraRotation(glm::mat3 m){
+	glm::mat3 cameraPosition = glm::mat3(CAMERA_POSITION.x, CAMERA_POSITION.y,CAMERA_POSITION.z,0,0,0,0,0,0);
+	glm::mat3 rotated = m*cameraPosition;
+	glm::vec3 column = rotated[0];
+	CAMERA_POSITION.x = column[0];
+	CAMERA_POSITION.y = column[1];
+	CAMERA_POSITION.z = column[2];
+}
+
 void handleEvent(SDL_Event event, DrawingWindow &window) {
 	Colour color = {rand()%255, rand()%255, rand()%255};
 	if (event.type == SDL_KEYDOWN) {
-		if (event.key.keysym.sym == SDLK_LEFT) std::cout << "LEFT" << std::endl;
-		else if (event.key.keysym.sym == SDLK_RIGHT) std::cout << "RIGHT" << std::endl;
-		else if (event.key.keysym.sym == SDLK_UP) std::cout << "UP" << std::endl;
-		else if (event.key.keysym.sym == SDLK_DOWN) std::cout << "DOWN" << std::endl;
+		// Lab 5 Task 3 changed to manipulate camera position
+		if (event.key.keysym.sym == SDLK_LEFT){
+			cleanBuffer();
+			CAMERA_POSITION[0]+=0.017;
+			rasterisedRender(window);
+		}
+		else if (event.key.keysym.sym == SDLK_RIGHT){
+			cleanBuffer();
+			CAMERA_POSITION[0]-=0.017;
+			rasterisedRender(window);
+		}
+		else if (event.key.keysym.sym == SDLK_UP){
+			cleanBuffer();
+			CAMERA_POSITION[1]-=0.017;
+			rasterisedRender(window);
+		}
+		else if (event.key.keysym.sym == SDLK_DOWN){
+			cleanBuffer();
+			CAMERA_POSITION[1]+=0.017;
+			rasterisedRender(window);
+		}
+		else if (event.key.keysym.sym == 'j'){
+			cleanBuffer();
+			CAMERA_POSITION[2]+=0.017;
+			rasterisedRender(window);
+		}
+		else if (event.key.keysym.sym == 'l'){
+			cleanBuffer();
+			CAMERA_POSITION[2]-=0.017;
+			rasterisedRender(window);
+		}
+		// Lab 5 Task 3 rotate
+		// Rotation about Y
+		else if (event.key.keysym.sym == 'a'){
+			// rotate to right
+			cleanBuffer();
+			glm::mat3 m = glm::mat3(cosine,0, -1*sine, 
+									0, 1, 0, 
+									sine, 0, cosine);
+			cameraRotation(m);
+			rasterisedRender(window);
+		}
+		else if (event.key.keysym.sym == 'd'){
+			// rotate to left
+			cleanBuffer();
+			glm::mat3 m = glm::mat3(cosine,0, sine, 
+									0, 1, 0, 
+									-1*sine, 0, cosine);
+			cameraRotation(m);
+			rasterisedRender(window);
+		}// Rotation about X
+		else if (event.key.keysym.sym == 'w'){
+			// rotate downwards
+			cleanBuffer();
+			glm::mat3 m = glm::mat3(1,0, 0, 
+									0, cosine, sine, 
+									0, -1*sine, cosine);
+			cameraRotation(m);
+			rasterisedRender(window);
+		}
+		else if (event.key.keysym.sym == 's'){
+			// rotate upwards
+			cleanBuffer();
+			glm::mat3 m = glm::mat3(1,0, 0, 
+									0, cosine, -1*sine, 
+									0, sine, cosine);
+			cameraRotation(m);
+			rasterisedRender(window);
+		}
 		// Lab 3 Task 3
 		else if (event.key.keysym.sym == 'u') {
 			Colour color = {rand()%255, rand()%255, rand()%255};
@@ -319,8 +425,10 @@ void handleEvent(SDL_Event event, DrawingWindow &window) {
 int main(int argc, char *argv[]) {
 	DrawingWindow window = DrawingWindow(WIDTH, HEIGHT, false);
 	SDL_Event event;
+	cleanBuffer();
 	while (true) {
 		// We MUST poll for events - otherwise the window will freeze !
+		window.clearPixels();
 		if (window.pollForInputEvents(event)) handleEvent(event, window);
 		// Lab 4 Task 2/3 test
 		// std::vector<ModelTriangle> l = loadOBJFile("cornell-box.obj","cornell-box.mtl",LOAD_SCALE);
