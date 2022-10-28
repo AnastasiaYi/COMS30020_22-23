@@ -34,8 +34,9 @@ float DEPTH_BUFFER[HEIGHT][WIDTH];
 
 // Lab 5
 glm::vec3 CAMERA_POSITION = glm::vec3(0,0,4);
-float cosine = cos(0.05);
-float sine = sin(0.05);
+glm::mat3 CAMERA_ORIENTATION = glm::mat3(1,0,0,0,1,0,0,0,1);
+float cosine = cos(0.01);
+float sine = sin(0.01);
 
 
 // Lab 3 helper function
@@ -115,10 +116,10 @@ void drawLine (DrawingWindow &window, CanvasPoint from, CanvasPoint to, Colour c
 		float x = from.x + (xStepSize*i);
 		float y = from.y + (yStepSize*i);
 		float depth = (1/from.depth + (zStepSize*i));
-		if ((DEPTH_BUFFER[int(ceill(y))][int(floor(x))] <= depth)|(DEPTH_BUFFER[int(ceill(y))][int(floor(x))] == 0)){
+		if ((DEPTH_BUFFER[int(y)][int(x)] <= depth)|(DEPTH_BUFFER[int(y)][int(x)] == 0)){
 			uint32_t c = (255 << 24) + (color.red << 16) + (color.green << 8) + color.blue;
 			window.setPixelColour(x, y, c);
-			DEPTH_BUFFER[int(ceill(y))][int(floor(x))] = depth;
+			DEPTH_BUFFER[int(y)][int(x)] = depth;
 		}
 		
 	}
@@ -254,7 +255,9 @@ std::vector<ModelTriangle> loadOBJFile(std::string OBJfilename, std::string MTLf
 
 // Lab 4 Task 5
 CanvasPoint getCanvasIntersectionPoint(glm::vec3 cameraPosition, glm::vec3 vertexPosition, float focalLength, float imagePlaneScaling){
-	glm::vec3 vertexP = vertexPosition-cameraPosition;
+	glm::vec3 vertexP = (vertexPosition-cameraPosition)*CAMERA_ORIENTATION;
+	// glm::vec3 vertexP = vertexPosition-cameraPosition;
+
 	float u = -1*imagePlaneScaling*focalLength * vertexP.x/vertexP.z + WIDTH/2;
 	float v = imagePlaneScaling*focalLength * vertexP.y/vertexP.z + HEIGHT/2;
 	float d = 1/vertexP.z;
@@ -315,13 +318,38 @@ void rasterisedRender(DrawingWindow &window){
 }
 
 // Lab 5 Task 3 Helper function
-void cameraRotation(glm::mat3 m){
+void cameraRotation(glm::mat3 m, DrawingWindow &window){
+	cleanBuffer();
 	glm::mat3 cameraPosition = glm::mat3(CAMERA_POSITION.x, CAMERA_POSITION.y,CAMERA_POSITION.z,0,0,0,0,0,0);
 	glm::mat3 rotated = m*cameraPosition;
 	glm::vec3 column = rotated[0];
 	CAMERA_POSITION.x = column[0];
 	CAMERA_POSITION.y = column[1];
 	CAMERA_POSITION.z = column[2];
+	CAMERA_ORIENTATION = m*CAMERA_ORIENTATION;
+	rasterisedRender(window);
+}
+
+// Lab 5 Task 5
+// question: can't stop once r is pressed
+void orbit(DrawingWindow &window,SDL_Event event){
+	glm::mat3 m = glm::mat3(cosine,0, -1*sine, 
+								0, 1, 0, 
+								sine, 0, cosine);
+	while (true){
+		window.clearPixels();
+		cameraRotation(m, window);
+		window.renderFrame();
+		if (event.key.keysym.sym == 'q') break;
+	}
+}
+
+// Lab 5 Task 6
+void lookAt(glm::vec3 lookAtPoint){
+	glm::vec3 forward = CAMERA_POSITION-lookAtPoint;
+	glm::vec3 right = glm::cross({0,1,0},forward);
+	glm::vec3 up = glm::cross(forward,right);
+	CAMERA_ORIENTATION = glm::mat3(forward,up,right);
 }
 
 void handleEvent(SDL_Event event, DrawingWindow &window) {
@@ -362,39 +390,35 @@ void handleEvent(SDL_Event event, DrawingWindow &window) {
 		// Rotation about Y
 		else if (event.key.keysym.sym == 'a'){
 			// rotate to right
-			cleanBuffer();
 			glm::mat3 m = glm::mat3(cosine,0, -1*sine, 
 									0, 1, 0, 
 									sine, 0, cosine);
-			cameraRotation(m);
-			rasterisedRender(window);
+			cameraRotation(m,window);
 		}
 		else if (event.key.keysym.sym == 'd'){
 			// rotate to left
-			cleanBuffer();
 			glm::mat3 m = glm::mat3(cosine,0, sine, 
 									0, 1, 0, 
 									-1*sine, 0, cosine);
-			cameraRotation(m);
-			rasterisedRender(window);
-		}// Rotation about X
+			cameraRotation(m,window);		
+		}
+		// Rotation about X
 		else if (event.key.keysym.sym == 'w'){
 			// rotate downwards
-			cleanBuffer();
 			glm::mat3 m = glm::mat3(1,0, 0, 
 									0, cosine, sine, 
 									0, -1*sine, cosine);
-			cameraRotation(m);
-			rasterisedRender(window);
+			cameraRotation(m,window);
 		}
 		else if (event.key.keysym.sym == 's'){
 			// rotate upwards
-			cleanBuffer();
 			glm::mat3 m = glm::mat3(1,0, 0, 
 									0, cosine, -1*sine, 
 									0, sine, cosine);
-			cameraRotation(m);
-			rasterisedRender(window);
+			cameraRotation(m,window);
+		}
+		else if (event.key.keysym.sym == 'r'){
+			orbit(window,event);
 		}
 		// Lab 3 Task 3
 		else if (event.key.keysym.sym == 'u') {
@@ -430,15 +454,26 @@ int main(int argc, char *argv[]) {
 		// We MUST poll for events - otherwise the window will freeze !
 		window.clearPixels();
 		if (window.pollForInputEvents(event)) handleEvent(event, window);
-		// Lab 4 Task 2/3 test
-		// std::vector<ModelTriangle> l = loadOBJFile("cornell-box.obj","cornell-box.mtl",LOAD_SCALE);
-		// for (int i = 0; i < l.size(); i++){
-		// 	std::cout << i << std::endl;
-		// 	std::cout << l[i].colour << std::endl;
-		// }
+		// Alternative solution for lab 5 task 5
+		glm::mat3 m = glm::mat3(cosine,0, -1*sine, 
+								0, 1, 0, 
+								sine, 0, cosine);
+		glm::vec3 lookAtPoint = {WIDTH/2, HEIGHT/2,-1};
+		glm::vec3 forward = lookAtPoint-CAMERA_POSITION;
+		glm::vec3 right = glm::cross({0,1,0},forward);
+		glm::vec3 up = glm::cross(forward,right);
+		glm::mat3 c = glm::mat3(right,up,forward);
+		std::cout << "forward" << glm::to_string(forward) << std::endl;
+		std::cout << "right" << glm::to_string(right) << std::endl;
+		std::cout << "up" << glm::to_string(up) << std::endl;
 
-		// pointcloud(window);
-		// wireframeRender(window);
+		// std::cout << glm::to_string() << std::endl;
+		// std::cout << glm::to_string(c) << std::endl;
+		// CAMERA_ORIENTATION = glm::mat3(right,up,forward);
+
+		// lookAt({WIDTH/2, HEIGHT/2,0});
+		cameraRotation(m, window);
+
 		rasterisedRender(window);
 
 		// Need to render the frame at the end, or nothing actually gets shown on the screen !
