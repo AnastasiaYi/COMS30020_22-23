@@ -18,6 +18,8 @@
 #include <iostream>
 // Lab 4 Task 3
 #include <map>
+// Lab 6 Task 2
+#include <RayTriangleIntersection.h>
 
 // #define WIDTH 320
 // #define HEIGHT 240
@@ -27,8 +29,8 @@
 #define HEIGHT 720
 
 // Lab 4
-#define LOAD_SCALE 0.17
-#define IMAGE_SCALE 400
+#define LOAD_SCALE 0.35
+#define IMAGE_SCALE 300
 #define FOCAL_LENGTH 2.0
 float DEPTH_BUFFER[HEIGHT][WIDTH];
 
@@ -37,6 +39,9 @@ glm::vec3 CAMERA_POSITION = glm::vec3(0,0,4);
 glm::mat3 CAMERA_ORIENTATION = glm::mat3(1,0,0,0,1,0,0,0,1);
 float cosine = cos(0.01);
 float sine = sin(0.01);
+
+// Lab 6
+glm::vec3 LIGHT_POINT = {0.0, 0.85,0.3}; // Hardcoded. Needs changing.
 
 
 // Lab 3 helper function
@@ -103,7 +108,7 @@ std::vector<glm::vec3> interpolateThreeElementValues(glm::vec3 from, glm::vec3 t
 	return result;
 }
 
-// Lab 3 Task 2
+// Lab 4 Task 9
 void drawLine (DrawingWindow &window, CanvasPoint from, CanvasPoint to, Colour color){
 	float xDiff = to.x - from.x;
 	float yDiff = to.y - from.y;
@@ -303,6 +308,7 @@ void cleanBuffer() {
 
 // Lab 4 Task 8
 void rasterisedRender(DrawingWindow &window){
+	cleanBuffer();
 	std::vector<ModelTriangle> modelTriangles = loadOBJFile("cornell-box.obj","cornell-box.mtl",LOAD_SCALE);
 	for (int i = 0; i < modelTriangles.size(); i++){
 		std::array<glm::vec3,3> vertices = modelTriangles[i].vertices;
@@ -323,7 +329,7 @@ void cameraRotation(glm::mat3 m, DrawingWindow &window){
 	glm::mat3 cameraPosition = glm::mat3(CAMERA_POSITION.x, CAMERA_POSITION.y,CAMERA_POSITION.z,0,0,0,0,0,0);
 	glm::mat3 rotated = m*cameraPosition;
 	glm::vec3 column = rotated[0];
-	CAMERA_POSITION.x = column[0];
+	CAMERA_POSITION.x = column[0];  
 	CAMERA_POSITION.y = column[1];
 	CAMERA_POSITION.z = column[2];
 	CAMERA_ORIENTATION = m*CAMERA_ORIENTATION;
@@ -331,16 +337,16 @@ void cameraRotation(glm::mat3 m, DrawingWindow &window){
 }
 
 // Lab 5 Task 5
-// question: can't stop once r is pressed
 void orbit(DrawingWindow &window,SDL_Event event){
 	glm::mat3 m = glm::mat3(cosine,0, -1*sine, 
 								0, 1, 0, 
 								sine, 0, cosine);
 	while (true){
 		window.clearPixels();
+		if (window.pollForInputEvents(event)) if (event.key.keysym.sym == 'q') break;
 		cameraRotation(m, window);
 		window.renderFrame();
-		if (event.key.keysym.sym == 'q') break;
+		
 	}
 }
 
@@ -352,37 +358,111 @@ void lookAt(glm::vec3 lookAtPoint){
 	CAMERA_ORIENTATION = glm::mat3(forward,up,right);
 }
 
+// Lab 6 Task 2
+std::vector<RayTriangleIntersection> getClosestIntersection(glm::vec3 startingPoint, glm::vec3 rayDirection, std::vector<ModelTriangle> modelTriangles){
+	std::vector<RayTriangleIntersection> c;
+	for (int i = 0; i < modelTriangles.size(); i++) {
+		glm::vec3 p0 = modelTriangles[i].vertices[0];
+		glm::vec3 p1 = modelTriangles[i].vertices[1];
+		glm::vec3 p2 = modelTriangles[i].vertices[2];
+		glm::vec3 e0 = p1 - p0;
+		glm::vec3 e1 = p2 - p0;
+		glm::vec3 SPVector = startingPoint - p0;
+		glm::mat3 DEMatrix(-rayDirection, e0, e1);
+		glm::vec3 TUVMatrix = glm::inverse(DEMatrix) * SPVector;
+		float t = TUVMatrix[0];
+		float u = TUVMatrix[1];
+		float v = TUVMatrix[2];
+
+		if ((!((u>=0.0)&(u<=1.0)))|(!((v>=0.0)&(v<=1.0)))|(!((u + v) <= 1.0))){
+			RayTriangleIntersection rti = RayTriangleIntersection();
+			rti.distanceFromCamera = 0;
+			c.push_back(rti);
+			continue;
+		}
+		glm::vec3 r = startingPoint + t*rayDirection;
+		RayTriangleIntersection rti = RayTriangleIntersection(r, TUVMatrix[0], modelTriangles[i], i);
+		c.push_back(rti);
+	}
+	return c;
+}
+
+// Lab 6 Task 4
+void rayTracingRasterisedScene(DrawingWindow &window){
+	uint32_t black = 255 << 24;
+	std::vector<ModelTriangle> modelTriangles = loadOBJFile("cornell-box.obj","cornell-box.mtl",LOAD_SCALE);
+	for (float i = 0; i < HEIGHT; i++){
+		for (float j = 0; j < WIDTH; j++){
+			float z = CAMERA_POSITION.z - FOCAL_LENGTH;
+			float x = (j-WIDTH/2)*z/(FOCAL_LENGTH*IMAGE_SCALE);
+			float y = -1*(i-HEIGHT/2)*z/(FOCAL_LENGTH*IMAGE_SCALE);
+			glm::vec3 canvasTo3D = {x,y,z};
+			glm::vec3 rdFromCamera = canvasTo3D - CAMERA_POSITION;
+			std::vector<RayTriangleIntersection> rayFromCamera = getClosestIntersection(CAMERA_POSITION, rdFromCamera, modelTriangles);
+			float dC = INFINITY;
+			float dL = INFINITY;
+			float nC = 0.0;
+			float nL = 0.0;
+
+			for (int n = 0; n < rayFromCamera.size(); n++){
+				if (rayFromCamera[n].distanceFromCamera==0) {
+					window.setPixelColour(j,i,black);
+					continue;
+				}
+				if (rayFromCamera[n].distanceFromCamera<=dC){
+					dC = rayFromCamera[n].distanceFromCamera;
+					nC = n;
+				}
+			}
+			size_t indexC = rayFromCamera[nC].triangleIndex;
+			glm::vec3 intersectionPointC = rayFromCamera[nC].intersectionPoint;
+			glm::vec3 rdFromLightPoint = intersectionPointC - LIGHT_POINT;
+
+			std::vector<RayTriangleIntersection> rayFromLightPoint = getClosestIntersection(LIGHT_POINT, rdFromLightPoint, modelTriangles);
+			for (int n = 0; n < rayFromLightPoint.size(); n++){
+				if (rayFromLightPoint[n].distanceFromCamera<=dL){
+					dL = rayFromLightPoint[n].distanceFromCamera;
+					nL = n;
+				}
+			}
+			size_t indexL = rayFromLightPoint[nL].triangleIndex;
+			if (indexL == indexC){
+				Colour triangleColor = rayFromCamera[nC].intersectedTriangle.colour;
+				uint32_t color = (255 << 24) + (triangleColor.red << 16) + (triangleColor.green << 8) + triangleColor.blue;
+				window.setPixelColour(j, i, color);
+			}
+			// else window.setPixelColour(j, i, black);
+			
+		}
+	}
+}
+
+
 void handleEvent(SDL_Event event, DrawingWindow &window) {
 	Colour color = {rand()%255, rand()%255, rand()%255};
 	if (event.type == SDL_KEYDOWN) {
 		// Lab 5 Task 3 changed to manipulate camera position
 		if (event.key.keysym.sym == SDLK_LEFT){
-			cleanBuffer();
 			CAMERA_POSITION[0]+=0.017;
 			rasterisedRender(window);
 		}
 		else if (event.key.keysym.sym == SDLK_RIGHT){
-			cleanBuffer();
 			CAMERA_POSITION[0]-=0.017;
 			rasterisedRender(window);
 		}
 		else if (event.key.keysym.sym == SDLK_UP){
-			cleanBuffer();
 			CAMERA_POSITION[1]-=0.017;
 			rasterisedRender(window);
 		}
 		else if (event.key.keysym.sym == SDLK_DOWN){
-			cleanBuffer();
 			CAMERA_POSITION[1]+=0.017;
 			rasterisedRender(window);
 		}
 		else if (event.key.keysym.sym == 'j'){
-			cleanBuffer();
 			CAMERA_POSITION[2]+=0.017;
 			rasterisedRender(window);
 		}
 		else if (event.key.keysym.sym == 'l'){
-			cleanBuffer();
 			CAMERA_POSITION[2]-=0.017;
 			rasterisedRender(window);
 		}
@@ -451,30 +531,17 @@ int main(int argc, char *argv[]) {
 	SDL_Event event;
 	cleanBuffer();
 	while (true) {
-		// We MUST poll for events - otherwise the window will freeze !
 		window.clearPixels();
+		// We MUST poll for events - otherwise the window will freeze !
 		if (window.pollForInputEvents(event)) handleEvent(event, window);
-		// Alternative solution for lab 5 task 5
-		glm::mat3 m = glm::mat3(cosine,0, -1*sine, 
-								0, 1, 0, 
-								sine, 0, cosine);
-		glm::vec3 lookAtPoint = {WIDTH/2, HEIGHT/2,-1};
-		glm::vec3 forward = lookAtPoint-CAMERA_POSITION;
-		glm::vec3 right = glm::cross({0,1,0},forward);
-		glm::vec3 up = glm::cross(forward,right);
-		glm::mat3 c = glm::mat3(right,up,forward);
-		std::cout << "forward" << glm::to_string(forward) << std::endl;
-		std::cout << "right" << glm::to_string(right) << std::endl;
-		std::cout << "up" << glm::to_string(up) << std::endl;
 
-		// std::cout << glm::to_string() << std::endl;
-		// std::cout << glm::to_string(c) << std::endl;
-		// CAMERA_ORIENTATION = glm::mat3(right,up,forward);
+		// rasterisedRender(window);
 
-		// lookAt({WIDTH/2, HEIGHT/2,0});
-		cameraRotation(m, window);
+		rayTracingRasterisedScene(window);
 
-		rasterisedRender(window);
+		// lightTracingRasterisedScene(window);
+
+		
 
 		// Need to render the frame at the end, or nothing actually gets shown on the screen !
 		window.renderFrame();
