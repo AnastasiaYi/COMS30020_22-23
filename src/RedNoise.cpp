@@ -41,11 +41,16 @@ float cosine = cos(0.01);
 float sine = sin(0.01);
 
 // Lab 6
-glm::vec3 LIGHT_POINT = {0.0, 0.85,0.3}; // Hardcoded. Needs changing.
+glm::vec3 LIGHT_POINT = {0.0, 0.85,0.3}; // Hardcoded
 
+void cleanBuffer() {
+	for(int i = 0; i < HEIGHT; i++) {
+		for(int j = 0; j < WIDTH; j++) {
+			DEPTH_BUFFER[i][j] = 0;
+		}
+	}
+}
 
-// Lab 3 helper function
-// Task 2 
 std::vector<glm::vec2> interpolateTwoElementValues(glm::vec2 from, glm::vec2 to, float numberOfValues){
 	std::vector<glm::vec2> result;
 	glm::vec2 stepSize = (to-from)/(numberOfValues);
@@ -55,7 +60,60 @@ std::vector<glm::vec2> interpolateTwoElementValues(glm::vec2 from, glm::vec2 to,
 	return result;
 }
 
-// Task 4 
+CanvasTriangle generateRandomTriangle(DrawingWindow &window){
+	CanvasPoint v0 = {float(rand()%window.width), float(rand()%window.height)};
+	CanvasPoint v1 = {float(rand()%window.width), float(rand()%window.height)};
+	CanvasPoint v2 = {float(rand()%window.width), float(rand()%window.height)};
+	CanvasTriangle aLovelyTriangle = CanvasTriangle(v0, v1, v2);
+	return aLovelyTriangle;
+}
+
+std::vector<float> interpolateSingleFloats(float from, float to, float numberOfValues) {
+	std::vector<float> result;
+	float stepSize = (to - from)/(numberOfValues-1);
+	for (int i = 0; i < numberOfValues; i ++) {
+		result.push_back(from + i*stepSize);
+	}
+	return result;
+}
+
+std::vector<glm::vec3> interpolateThreeElementValues(glm::vec3 from, glm::vec3 to, float numberOfValues){
+	std::vector<glm::vec3> result;
+	glm::vec3 stepSize = (to - from)/(numberOfValues);
+	for (float i = 0; i < numberOfValues; i++){ // i must be float. Can't multiply int with float in c++.
+		result.push_back(from + i*stepSize);
+	}
+	return result;
+}
+
+void drawLine (DrawingWindow &window, CanvasPoint from, CanvasPoint to, Colour color){
+	float xDiff = to.x - from.x;
+	float yDiff = round(to.y) - round(from.y);
+	float zDiff = 1/to.depth - 1/from.depth;
+	float numberOfSteps = std::max(abs(xDiff), abs(yDiff))+5;
+	float xStepSize = xDiff/numberOfSteps;
+	float yStepSize = yDiff/numberOfSteps;
+	float zStepSize = zDiff/numberOfSteps;
+	for (float i = 0.0; i < numberOfSteps; i++) {
+		float x = from.x + (xStepSize*i);
+		float y = from.y + (yStepSize*i);
+		float depth = (1/from.depth + (zStepSize*i));
+		if ((DEPTH_BUFFER[int(y)][int(x)] <= depth)|(DEPTH_BUFFER[int(y)][int(x)] == 0)){
+			uint32_t c = (255 << 24) + (color.red << 16) + (color.green << 8) + color.blue;
+			window.setPixelColour(x, y, c);
+			DEPTH_BUFFER[int(y)][int(x)] = depth;
+		}
+		
+	}
+
+}
+
+void drawStrokedTriangle (DrawingWindow &window, CanvasPoint v0, CanvasPoint v1, CanvasPoint v2, Colour color){
+	drawLine(window, v0, v1, color);
+	drawLine(window, v1, v2, color);
+	drawLine(window, v0, v2, color);
+}
+
 CanvasTriangle sortTriangle (CanvasTriangle triangle){
 	while (!((triangle.v0().y<=triangle.v1().y)&&(triangle.v1().y<=triangle.v2().y))){
 		if (triangle.v0().y>=triangle.v1().y) std::swap(triangle.v0(),triangle.v1());
@@ -79,66 +137,6 @@ CanvasPoint findMiddlePoint (CanvasTriangle triangle){
 	return c;
 }
 
-CanvasTriangle generateRandomTriangle(DrawingWindow &window){
-	CanvasPoint v0 = {float(rand()%window.width), float(rand()%window.height)};
-	CanvasPoint v1 = {float(rand()%window.width), float(rand()%window.height)};
-	CanvasPoint v2 = {float(rand()%window.width), float(rand()%window.height)};
-	CanvasTriangle aLovelyTriangle = CanvasTriangle(v0, v1, v2);
-	return aLovelyTriangle;
-}
-
-
-// Lab 2 Task 2
-std::vector<float> interpolateSingleFloats(float from, float to, float numberOfValues) {
-	std::vector<float> result;
-	float stepSize = (to - from)/(numberOfValues-1);
-	for (int i = 0; i < numberOfValues; i ++) {
-		result.push_back(from + i*stepSize);
-	}
-	return result;
-}
-
-// Lab 2 Task 4
-std::vector<glm::vec3> interpolateThreeElementValues(glm::vec3 from, glm::vec3 to, float numberOfValues){
-	std::vector<glm::vec3> result;
-	glm::vec3 stepSize = (to - from)/(numberOfValues);
-	for (float i = 0; i < numberOfValues; i++){ // i must be float. Can't multiply int with float in c++.
-		result.push_back(from + i*stepSize);
-	}
-	return result;
-}
-
-// Lab 4 Task 9
-void drawLine (DrawingWindow &window, CanvasPoint from, CanvasPoint to, Colour color){
-	float xDiff = to.x - from.x;
-	float yDiff = round(to.y) - round(from.y);
-	float zDiff = 1/to.depth - 1/from.depth;
-	float numberOfSteps = std::max(abs(xDiff), abs(yDiff))+5;
-	float xStepSize = xDiff/numberOfSteps;
-	float yStepSize = yDiff/numberOfSteps;
-	float zStepSize = zDiff/numberOfSteps;
-	for (float i = 0.0; i < numberOfSteps; i++) {
-		float x = from.x + (xStepSize*i);
-		float y = from.y + (yStepSize*i);
-		float depth = (1/from.depth + (zStepSize*i));
-		if ((DEPTH_BUFFER[int(y)][int(x)] <= depth)|(DEPTH_BUFFER[int(y)][int(x)] == 0)){
-			uint32_t c = (255 << 24) + (color.red << 16) + (color.green << 8) + color.blue;
-			window.setPixelColour(x, y, c);
-			DEPTH_BUFFER[int(y)][int(x)] = depth;
-		}
-		
-	}
-
-}
-
-// Lab 3 Task 3
-void drawStrokedTriangle (DrawingWindow &window, CanvasPoint v0, CanvasPoint v1, CanvasPoint v2, Colour color){
-	drawLine(window, v0, v1, color);
-	drawLine(window, v1, v2, color);
-	drawLine(window, v0, v2, color);
-}
-
-// Task 4 helper function
 void drawHalfTriangle (DrawingWindow &window, CanvasPoint h0, CanvasPoint h1, CanvasPoint h2, Colour color){
 	glm::vec3 from = {h0.x, h0.y, 1/h0.depth};
 	glm::vec3 to1 = {h1.x, h1.y, 1/h1.depth};
@@ -153,7 +151,6 @@ void drawHalfTriangle (DrawingWindow &window, CanvasPoint h0, CanvasPoint h1, Ca
 	}
 }
 
-// Lab 3 Task 4
 void drawFilledTriangle (DrawingWindow &window, CanvasTriangle triangle, Colour color){
 	// Colour white = {255, 255, 255};
 	CanvasTriangle sortedTriangle = sortTriangle(triangle);
@@ -163,7 +160,6 @@ void drawFilledTriangle (DrawingWindow &window, CanvasTriangle triangle, Colour 
 	drawStrokedTriangle(window, sortedTriangle.v0(), sortedTriangle.v1(), sortedTriangle.v2(), color);
 }
 
-// Task 5 helper function
 void drawHalfTextureTriangle(DrawingWindow &window, CanvasPoint t0, CanvasPoint t1, CanvasPoint t2, TextureMap textureMap, glm::mat3x3 affine){
 	float h = abs(t0.y-t1.y);
 	std::vector<glm::vec2> t0t1 = interpolateTwoElementValues({t0.x,t0.y},{t1.x,t1.y},h+1); // h+1 to solve skipped lines
@@ -183,7 +179,6 @@ void drawHalfTextureTriangle(DrawingWindow &window, CanvasPoint t0, CanvasPoint 
 	}
 }
 
-// Lab 3 Task 5
 void drawTextureTriangle(DrawingWindow &window, CanvasPoint v0, CanvasPoint v1, CanvasPoint v2, TextureMap textureMap){
 	glm::mat3x3 texture = {{v0.texturePoint.x,v1.texturePoint.x,v2.texturePoint.x},
 						   {v0.texturePoint.y,v1.texturePoint.y,v2.texturePoint.y},
@@ -198,7 +193,6 @@ void drawTextureTriangle(DrawingWindow &window, CanvasPoint v0, CanvasPoint v1, 
 	drawStrokedTriangle(window,sortedTriangle.v0(),sortedTriangle.v1(), sortedTriangle.v2(), {255,255,255});
 }
 
-// Lab 4 Task 3
 std::map<std::string, Colour> loadMTLFile(std::string filename) {
 	std::map<std::string, Colour> result;
 	std::ifstream MTLFile(filename);
@@ -220,7 +214,6 @@ std::map<std::string, Colour> loadMTLFile(std::string filename) {
 	return result;
 }
 
-// Lab 4 Task 2
 std::vector<ModelTriangle> loadOBJFile(std::string OBJfilename, std::string MTLfilename, float scalingFactor){
 	if (scalingFactor==0.0) throw std::invalid_argument( "Scaling factor shouldn't be zero!" );
 	std::vector<ModelTriangle> result;
@@ -258,7 +251,6 @@ std::vector<ModelTriangle> loadOBJFile(std::string OBJfilename, std::string MTLf
 	return result;
 }
 
-// Lab 4 Task 5
 CanvasPoint getCanvasIntersectionPoint(glm::vec3 cameraPosition, glm::vec3 vertexPosition, float focalLength, float imagePlaneScaling){
 	glm::vec3 vertexP = (vertexPosition-cameraPosition)*CAMERA_ORIENTATION;
 	// glm::vec3 vertexP = vertexPosition-cameraPosition;
@@ -269,7 +261,6 @@ CanvasPoint getCanvasIntersectionPoint(glm::vec3 cameraPosition, glm::vec3 verte
 	return CanvasPoint(u,v,d);
 }
 
-// Lab 4 Task 6
 void pointcloud(DrawingWindow &window){
 	std::vector<ModelTriangle> modelTriangles = loadOBJFile("cornell-box.obj","cornell-box.mtl",LOAD_SCALE);
 	uint32_t color = (255 << 24) + (255 << 16) + (255 << 8) + 255;
@@ -282,8 +273,8 @@ void pointcloud(DrawingWindow &window){
 	}
 }
 
-// Lab 4 Task 7
 void wireframeRender(DrawingWindow &window){
+	cleanBuffer();
 	std::vector<ModelTriangle> modelTriangles = loadOBJFile("cornell-box.obj","cornell-box.mtl",LOAD_SCALE);
 	for (int i = 0; i < modelTriangles.size(); i++){
 		std::array<glm::vec3,3> vertices = modelTriangles[i].vertices;
@@ -297,16 +288,6 @@ void wireframeRender(DrawingWindow &window){
 	}
 }
 
-// Lab 4 Task 8 Helper Function
-void cleanBuffer() {
-	for(int i = 0; i < HEIGHT; i++) {
-		for(int j = 0; j < WIDTH; j++) {
-			DEPTH_BUFFER[i][j] = 0;
-		}
-	}
-}
-
-// Lab 4 Task 8
 void rasterisedRender(DrawingWindow &window){
 	cleanBuffer();
 	std::vector<ModelTriangle> modelTriangles = loadOBJFile("cornell-box.obj","cornell-box.mtl",LOAD_SCALE);
@@ -323,26 +304,33 @@ void rasterisedRender(DrawingWindow &window){
 	}
 }
 
-// Lab 5 Task 3 Helper function
-void cameraRotation(glm::mat3 m, DrawingWindow &window){
-	cleanBuffer();
-	glm::mat3 cameraPosition = glm::mat3(CAMERA_POSITION.x, CAMERA_POSITION.y,CAMERA_POSITION.z,0,0,0,0,0,0);
-	glm::mat3 rotated = m*cameraPosition;
-	glm::vec3 column = rotated[0];
-	CAMERA_POSITION.x = column[0];  
-	CAMERA_POSITION.y = column[1];
-	CAMERA_POSITION.z = column[2];
-	CAMERA_ORIENTATION = m*CAMERA_ORIENTATION;
+void lookAt(glm::vec3 lookAtPoint){
+	glm::vec3 forward = glm::normalize(CAMERA_POSITION-lookAtPoint);
+	glm::vec3 right = glm::cross({0,1,0},forward);
+	glm::vec3 up = glm::cross(forward,right);
+	CAMERA_ORIENTATION = glm::mat3(right,up,forward);
+}
+
+void cameraMoving(DrawingWindow &window, float step, int index){
+	window.clearPixels();
+	CAMERA_POSITION[index] += step;
+	lookAt({0,0,0});
 	rasterisedRender(window);
 }
 
-// Lab 5 Task 5
+void cameraRotation(glm::mat3 m, DrawingWindow &window){
+	cleanBuffer();
+	window.clearPixels();
+	CAMERA_POSITION = m*CAMERA_POSITION;
+	lookAt({0,0,0});
+	rasterisedRender(window);
+}
+
 void orbit(DrawingWindow &window,SDL_Event event){
 	glm::mat3 m = glm::mat3(cosine,0, -1*sine, 
 								0, 1, 0, 
 								sine, 0, cosine);
 	while (true){
-		window.clearPixels();
 		if (window.pollForInputEvents(event)) if (event.key.keysym.sym == 'q') break;
 		cameraRotation(m, window);
 		window.renderFrame();
@@ -350,15 +338,6 @@ void orbit(DrawingWindow &window,SDL_Event event){
 	}
 }
 
-// Lab 5 Task 6
-void lookAt(glm::vec3 lookAtPoint){
-	glm::vec3 forward = CAMERA_POSITION-lookAtPoint;
-	glm::vec3 right = glm::cross({0,1,0},forward);
-	glm::vec3 up = glm::cross(forward,right);
-	CAMERA_ORIENTATION = glm::mat3(forward,up,right);
-}
-
-// Lab 6 Task 2
 RayTriangleIntersection getClosestIntersection(glm::vec3 startingPoint, glm::vec3 rayDirection, std::vector<ModelTriangle> modelTriangles){
 	RayTriangleIntersection result;
 	result.distanceFromCamera = INFINITY;
@@ -384,7 +363,6 @@ RayTriangleIntersection getClosestIntersection(glm::vec3 startingPoint, glm::vec
 	return result;
 }
 
-// Lab 6 Task 4
 void rayTracingRasterisedScene(DrawingWindow &window){
 	std::vector<ModelTriangle> modelTriangles = loadOBJFile("cornell-box.obj","cornell-box.mtl",LOAD_SCALE);
 	for (float i = 0; i < HEIGHT; i++){
@@ -412,29 +390,22 @@ void rayTracingRasterisedScene(DrawingWindow &window){
 	}
 }
 
-
 void handleEvent(SDL_Event event, DrawingWindow &window) {
 	Colour color = {rand()%255, rand()%255, rand()%255};
 	if (event.type == SDL_KEYDOWN) {
 		// Lab 5 Task 3 changed to manipulate camera position
 		if (event.key.keysym.sym == SDLK_LEFT){
-			CAMERA_POSITION[0]+=0.017;
-			rasterisedRender(window);
+			cameraMoving(window, 0.17, 0);
 		} else if (event.key.keysym.sym == SDLK_RIGHT){
-			CAMERA_POSITION[0]-=0.017;
-			rasterisedRender(window);
+			cameraMoving(window, -0.17, 0);
 		} else if (event.key.keysym.sym == SDLK_UP){
-			CAMERA_POSITION[1]-=0.017;
-			rasterisedRender(window);
+			cameraMoving(window, 0.17, 1);
 		} else if (event.key.keysym.sym == SDLK_DOWN){
-			CAMERA_POSITION[1]+=0.017;
-			rasterisedRender(window);
+			cameraMoving(window, -0.17, 1);
 		} else if (event.key.keysym.sym == 'j'){
-			CAMERA_POSITION[2]+=0.017;
-			rasterisedRender(window);
+			cameraMoving(window, 0.17, 2);
 		} else if (event.key.keysym.sym == 'l'){
-			CAMERA_POSITION[2]-=0.017;
-			rasterisedRender(window);
+			cameraMoving(window, -0.17, 2);
 		}
 		// Lab 5 Task 3 rotate
 		// Rotation about Y
@@ -488,10 +459,13 @@ void handleEvent(SDL_Event event, DrawingWindow &window) {
 		}
 		// Lab 6 Task 7
 		else if (event.key.keysym.sym == 'z'){
+			window.clearPixels();
 			wireframeRender(window);
 		}else if (event.key.keysym.sym == 'x'){
+			window.clearPixels();
 			rasterisedRender(window);
 		}else if (event.key.keysym.sym == 'c'){
+			window.clearPixels();
 			rayTracingRasterisedScene(window);
 		}
 
@@ -506,16 +480,10 @@ int main(int argc, char *argv[]) {
 	SDL_Event event;
 	cleanBuffer();
 	while (true) {
-		window.clearPixels();
 		// We MUST poll for events - otherwise the window will freeze !
 		if (window.pollForInputEvents(event)) handleEvent(event, window);
-
 		// rasterisedRender(window);
-
 		// rayTracingRasterisedScene(window);
-
-
-		
 
 		// Need to render the frame at the end, or nothing actually gets shown on the screen !
 		window.renderFrame();
