@@ -111,9 +111,9 @@ std::vector<glm::vec3> interpolateThreeElementValues(glm::vec3 from, glm::vec3 t
 // Lab 4 Task 9
 void drawLine (DrawingWindow &window, CanvasPoint from, CanvasPoint to, Colour color){
 	float xDiff = to.x - from.x;
-	float yDiff = to.y - from.y;
+	float yDiff = round(to.y) - round(from.y);
 	float zDiff = 1/to.depth - 1/from.depth;
-	float numberOfSteps = std::max(abs(xDiff), abs(yDiff));
+	float numberOfSteps = std::max(abs(xDiff), abs(yDiff))+5;
 	float xStepSize = xDiff/numberOfSteps;
 	float yStepSize = yDiff/numberOfSteps;
 	float zStepSize = zDiff/numberOfSteps;
@@ -143,7 +143,7 @@ void drawHalfTriangle (DrawingWindow &window, CanvasPoint h0, CanvasPoint h1, Ca
 	glm::vec3 from = {h0.x, h0.y, 1/h0.depth};
 	glm::vec3 to1 = {h1.x, h1.y, 1/h1.depth};
 	glm::vec3 to2 = {h2.x, h2.y,1/h2.depth};
-	float numberOfValues = abs(h1.y - h0.y);
+	float numberOfValues = abs(h1.y - h0.y)+5;
 	std::vector<glm::vec3> h0h1  = interpolateThreeElementValues(from, to1, numberOfValues);
 	std::vector<glm::vec3> h0h2  = interpolateThreeElementValues(from, to2, numberOfValues);
 	for (float i = 0.0; i < numberOfValues; i++){
@@ -359,8 +359,9 @@ void lookAt(glm::vec3 lookAtPoint){
 }
 
 // Lab 6 Task 2
-std::vector<RayTriangleIntersection> getClosestIntersection(glm::vec3 startingPoint, glm::vec3 rayDirection, std::vector<ModelTriangle> modelTriangles){
-	std::vector<RayTriangleIntersection> c;
+RayTriangleIntersection getClosestIntersection(glm::vec3 startingPoint, glm::vec3 rayDirection, std::vector<ModelTriangle> modelTriangles){
+	RayTriangleIntersection result;
+	result.distanceFromCamera = INFINITY;
 	for (int i = 0; i < modelTriangles.size(); i++) {
 		glm::vec3 p0 = modelTriangles[i].vertices[0];
 		glm::vec3 p1 = modelTriangles[i].vertices[1];
@@ -373,23 +374,18 @@ std::vector<RayTriangleIntersection> getClosestIntersection(glm::vec3 startingPo
 		float t = TUVMatrix[0];
 		float u = TUVMatrix[1];
 		float v = TUVMatrix[2];
-
-		if ((!((u>=0.0)&(u<=1.0)))|(!((v>=0.0)&(v<=1.0)))|(!((u + v) <= 1.0))){
-			RayTriangleIntersection rti = RayTriangleIntersection();
-			rti.distanceFromCamera = 0;
-			c.push_back(rti);
-			continue;
+	
+		if (t < result.distanceFromCamera && t > 0 && u >= 0 && u <= 1 && v >= 0 && v <= 1 && (u + v) <= 1) {
+			glm::vec3 r = startingPoint + t*rayDirection;
+			RayTriangleIntersection rti = RayTriangleIntersection(r, TUVMatrix[0], modelTriangles[i], i);
+			result = rti;
 		}
-		glm::vec3 r = startingPoint + t*rayDirection;
-		RayTriangleIntersection rti = RayTriangleIntersection(r, TUVMatrix[0], modelTriangles[i], i);
-		c.push_back(rti);
 	}
-	return c;
+	return result;
 }
 
 // Lab 6 Task 4
 void rayTracingRasterisedScene(DrawingWindow &window){
-	uint32_t black = 255 << 24;
 	std::vector<ModelTriangle> modelTriangles = loadOBJFile("cornell-box.obj","cornell-box.mtl",LOAD_SCALE);
 	for (float i = 0; i < HEIGHT; i++){
 		for (float j = 0; j < WIDTH; j++){
@@ -398,41 +394,20 @@ void rayTracingRasterisedScene(DrawingWindow &window){
 			float y = -1*(i-HEIGHT/2)*z/(FOCAL_LENGTH*IMAGE_SCALE);
 			glm::vec3 canvasTo3D = {x,y,z};
 			glm::vec3 rdFromCamera = canvasTo3D - CAMERA_POSITION;
-			std::vector<RayTriangleIntersection> rayFromCamera = getClosestIntersection(CAMERA_POSITION, rdFromCamera, modelTriangles);
-			float dC = INFINITY;
-			float dL = INFINITY;
-			float nC = 0.0;
-			float nL = 0.0;
 
-			for (int n = 0; n < rayFromCamera.size(); n++){
-				if (rayFromCamera[n].distanceFromCamera==0) {
-					window.setPixelColour(j,i,black);
-					continue;
-				}
-				if (rayFromCamera[n].distanceFromCamera<=dC){
-					dC = rayFromCamera[n].distanceFromCamera;
-					nC = n;
-				}
-			}
-			size_t indexC = rayFromCamera[nC].triangleIndex;
-			glm::vec3 intersectionPointC = rayFromCamera[nC].intersectionPoint;
-			glm::vec3 rdFromLightPoint = intersectionPointC - LIGHT_POINT;
-
-			std::vector<RayTriangleIntersection> rayFromLightPoint = getClosestIntersection(LIGHT_POINT, rdFromLightPoint, modelTriangles);
-			for (int n = 0; n < rayFromLightPoint.size(); n++){
-				if (rayFromLightPoint[n].distanceFromCamera<=dL){
-					dL = rayFromLightPoint[n].distanceFromCamera;
-					nL = n;
+			RayTriangleIntersection rayFromCamera = getClosestIntersection(CAMERA_POSITION, rdFromCamera, modelTriangles);
+			if (rayFromCamera.distanceFromCamera!=INFINITY){
+				size_t indexC = rayFromCamera.triangleIndex;
+				glm::vec3 intersectionPointC = rayFromCamera.intersectionPoint;
+				glm::vec3 rdFromLightPoint = intersectionPointC - LIGHT_POINT;
+				RayTriangleIntersection rayFromLightPoint = getClosestIntersection(LIGHT_POINT, rdFromLightPoint, modelTriangles);
+				size_t indexL = rayFromLightPoint.triangleIndex;
+				if (indexL == indexC){
+					Colour triangleColor = rayFromCamera.intersectedTriangle.colour;
+					uint32_t color = (255 << 24) + (triangleColor.red << 16) + (triangleColor.green << 8) + triangleColor.blue;
+					window.setPixelColour(j, i, color);
 				}
 			}
-			size_t indexL = rayFromLightPoint[nL].triangleIndex;
-			if (indexL == indexC){
-				Colour triangleColor = rayFromCamera[nC].intersectedTriangle.colour;
-				uint32_t color = (255 << 24) + (triangleColor.red << 16) + (triangleColor.green << 8) + triangleColor.blue;
-				window.setPixelColour(j, i, color);
-			}
-			// else window.setPixelColour(j, i, black);
-			
 		}
 	}
 }
@@ -445,24 +420,19 @@ void handleEvent(SDL_Event event, DrawingWindow &window) {
 		if (event.key.keysym.sym == SDLK_LEFT){
 			CAMERA_POSITION[0]+=0.017;
 			rasterisedRender(window);
-		}
-		else if (event.key.keysym.sym == SDLK_RIGHT){
+		} else if (event.key.keysym.sym == SDLK_RIGHT){
 			CAMERA_POSITION[0]-=0.017;
 			rasterisedRender(window);
-		}
-		else if (event.key.keysym.sym == SDLK_UP){
+		} else if (event.key.keysym.sym == SDLK_UP){
 			CAMERA_POSITION[1]-=0.017;
 			rasterisedRender(window);
-		}
-		else if (event.key.keysym.sym == SDLK_DOWN){
+		} else if (event.key.keysym.sym == SDLK_DOWN){
 			CAMERA_POSITION[1]+=0.017;
 			rasterisedRender(window);
-		}
-		else if (event.key.keysym.sym == 'j'){
+		} else if (event.key.keysym.sym == 'j'){
 			CAMERA_POSITION[2]+=0.017;
 			rasterisedRender(window);
-		}
-		else if (event.key.keysym.sym == 'l'){
+		} else if (event.key.keysym.sym == 'l'){
 			CAMERA_POSITION[2]-=0.017;
 			rasterisedRender(window);
 		}
@@ -474,8 +444,7 @@ void handleEvent(SDL_Event event, DrawingWindow &window) {
 									0, 1, 0, 
 									sine, 0, cosine);
 			cameraRotation(m,window);
-		}
-		else if (event.key.keysym.sym == 'd'){
+		} else if (event.key.keysym.sym == 'd'){
 			// rotate to left
 			glm::mat3 m = glm::mat3(cosine,0, sine, 
 									0, 1, 0, 
@@ -489,15 +458,13 @@ void handleEvent(SDL_Event event, DrawingWindow &window) {
 									0, cosine, sine, 
 									0, -1*sine, cosine);
 			cameraRotation(m,window);
-		}
-		else if (event.key.keysym.sym == 's'){
+		} else if (event.key.keysym.sym == 's'){
 			// rotate upwards
 			glm::mat3 m = glm::mat3(1,0, 0, 
 									0, cosine, -1*sine, 
 									0, sine, cosine);
 			cameraRotation(m,window);
-		}
-		else if (event.key.keysym.sym == 'r'){
+		} else if (event.key.keysym.sym == 'r'){
 			orbit(window,event);
 		}
 		// Lab 3 Task 3
@@ -519,6 +486,14 @@ void handleEvent(SDL_Event event, DrawingWindow &window) {
 			TextureMap textureMap = TextureMap("texture.ppm");
 			drawTextureTriangle(window, v0, v1, v2, textureMap);
 		}
+		// Lab 6 Task 7
+		else if (event.key.keysym.sym == 'z'){
+			wireframeRender(window);
+		}else if (event.key.keysym.sym == 'x'){
+			rasterisedRender(window);
+		}else if (event.key.keysym.sym == 'c'){
+			rayTracingRasterisedScene(window);
+		}
 
 	} else if (event.type == SDL_MOUSEBUTTONDOWN) {
 		window.savePPM("output.ppm");
@@ -537,9 +512,8 @@ int main(int argc, char *argv[]) {
 
 		// rasterisedRender(window);
 
-		rayTracingRasterisedScene(window);
+		// rayTracingRasterisedScene(window);
 
-		// lightTracingRasterisedScene(window);
 
 		
 
