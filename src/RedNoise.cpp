@@ -41,7 +41,7 @@ float cosine = cos(0.01);
 float sine = sin(0.01);
 
 // Lab 6
-glm::vec3 LIGHT_POINT = {0.0, 0.85,0.3}; // Hardcoded
+glm::vec3 LIGHT_POINT = {0.0, 0.8,0.3}; // Hardcoded
 
 void cleanBuffer() {
 	for(int i = 0; i < HEIGHT; i++) {
@@ -86,9 +86,10 @@ std::vector<glm::vec3> interpolateThreeElementValues(glm::vec3 from, glm::vec3 t
 	return result;
 }
 
+// TODO: fix skipped line.
 void drawLine (DrawingWindow &window, CanvasPoint from, CanvasPoint to, Colour color){
 	float xDiff = to.x - from.x;
-	float yDiff = round(to.y) - round(from.y);
+	float yDiff = to.y - from.y;
 	float zDiff = 1/to.depth - 1/from.depth;
 	float numberOfSteps = std::max(abs(xDiff), abs(yDiff))+5;
 	float xStepSize = xDiff/numberOfSteps;
@@ -98,14 +99,12 @@ void drawLine (DrawingWindow &window, CanvasPoint from, CanvasPoint to, Colour c
 		float x = from.x + (xStepSize*i);
 		float y = from.y + (yStepSize*i);
 		float depth = (1/from.depth + (zStepSize*i));
-		if ((DEPTH_BUFFER[int(y)][int(x)] <= depth)|(DEPTH_BUFFER[int(y)][int(x)] == 0)){
+		if ((DEPTH_BUFFER[int(floor(y))][int(floor(x))] <= depth)|(DEPTH_BUFFER[int(y)][int(x)] == 0)){
 			uint32_t c = (255 << 24) + (color.red << 16) + (color.green << 8) + color.blue;
-			window.setPixelColour(x, y, c);
-			DEPTH_BUFFER[int(y)][int(x)] = depth;
+			window.setPixelColour(int(floor(x)), int(floor(y)), c);
+			DEPTH_BUFFER[int(floor(y))][int(floor(x))] = depth;
 		}
-		
 	}
-
 }
 
 void drawStrokedTriangle (DrawingWindow &window, CanvasPoint v0, CanvasPoint v1, CanvasPoint v2, Colour color){
@@ -140,11 +139,11 @@ CanvasPoint findMiddlePoint (CanvasTriangle triangle){
 void drawHalfTriangle (DrawingWindow &window, CanvasPoint h0, CanvasPoint h1, CanvasPoint h2, Colour color){
 	glm::vec3 from = {h0.x, h0.y, 1/h0.depth};
 	glm::vec3 to1 = {h1.x, h1.y, 1/h1.depth};
-	glm::vec3 to2 = {h2.x, h2.y,1/h2.depth};
+	glm::vec3 to2 = {h2.x, h1.y,1/h2.depth};
 	float numberOfValues = abs(h1.y - h0.y)+5;
 	std::vector<glm::vec3> h0h1  = interpolateThreeElementValues(from, to1, numberOfValues);
 	std::vector<glm::vec3> h0h2  = interpolateThreeElementValues(from, to2, numberOfValues);
-	for (float i = 0.0; i < numberOfValues; i++){
+	for (int i = 0; i < numberOfValues; i++){
 		CanvasPoint t = CanvasPoint(h0h2[i][0], h0h2[i][1], 1/h0h2[i][2]);
 		CanvasPoint f = CanvasPoint(h0h1[i][0], h0h1[i][1], 1/h0h1[i][2]);
 		drawLine(window, f,t, color);
@@ -221,6 +220,7 @@ std::vector<ModelTriangle> loadOBJFile(std::string OBJfilename, std::string MTLf
 	std::string line;
 	std::vector<glm::vec3> vertices;
 	std::vector<Colour> colors;
+	std::map<std::string, Colour> mtl = loadMTLFile(MTLfilename);
 	while (OBJFile.eof()==0){
 		getline(OBJFile, line);
 		if(line.empty()) continue;
@@ -237,13 +237,19 @@ std::vector<ModelTriangle> loadOBJFile(std::string OBJfilename, std::string MTLf
 			float x = std::stof(splitedLine[1]);
 			float y = std::stof(splitedLine[2]);
 			float z = std::stof(splitedLine[3]);
-			ModelTriangle m = ModelTriangle(vertices[x-1], vertices[y-1], vertices[z-1], colors[colors.size()-1]);
+			glm::vec3 v0 = vertices[x-1];
+			glm::vec3 v1 = vertices[y-1];
+			glm::vec3 v2 = vertices[z-1];
+			glm::vec3 v0v1 = v1-v0;
+			glm::vec3 v0v2 = v2-v0;
+			glm::vec3 normal = glm::cross(v0v1,v0v2);
+			ModelTriangle m = ModelTriangle(v0, v1, v2, colors[colors.size()-1]);
+			m.normal = normal;
 			result.push_back(m);
 		} 
 		// Lab 4 Task 3
 		else if (line[0] == 'u'){
 			std::vector<std::string> splitedLine = split(line,' ');
-			std::map<std::string, Colour> mtl = loadMTLFile(MTLfilename);
 			Colour c = mtl[splitedLine[1]];
 			colors.push_back(c);
 		}
@@ -363,6 +369,28 @@ RayTriangleIntersection getClosestIntersection(glm::vec3 startingPoint, glm::vec
 	return result;
 }
 
+float getBrightness(RayTriangleIntersection rayFromLightPoint){
+	glm::vec3 lightToCanvasPoint = rayFromLightPoint.intersectionPoint - LIGHT_POINT;
+	float d = glm::length(lightToCanvasPoint);
+	float brightness = 20/(4*M_PI*pow(d,2));
+	if (brightness > 1) brightness = 1;
+	return brightness;
+}
+
+Colour getColour(RayTriangleIntersection rayFromCamera, RayTriangleIntersection rayFromLightPoint, glm::vec3 rdFromSurface){
+	ModelTriangle intersectedTriangle = rayFromCamera.intersectedTriangle;
+	float brightness = getBrightness(rayFromLightPoint);
+	float angleOfIncidence = glm::dot(intersectedTriangle.normal, rdFromSurface);
+	if (angleOfIncidence<0) angleOfIncidence = 0;
+	else if (angleOfIncidence>1) angleOfIncidence = 1;
+	float colorFactor = brightness*angleOfIncidence;
+	Colour triangleColor = intersectedTriangle.colour;
+	int r = round(static_cast<float>(triangleColor.red) * colorFactor);
+	int g = round(static_cast<float>(triangleColor.green) * colorFactor);
+	int b = round(static_cast<float>(triangleColor.blue) * colorFactor);
+	return Colour(r,g,b);
+}
+
 void rayTracingRasterisedScene(DrawingWindow &window){
 	std::vector<ModelTriangle> modelTriangles = loadOBJFile("cornell-box.obj","cornell-box.mtl",LOAD_SCALE);
 	for (float i = 0; i < HEIGHT; i++){
@@ -372,17 +400,18 @@ void rayTracingRasterisedScene(DrawingWindow &window){
 			float y = -1*(i-HEIGHT/2)*z/(FOCAL_LENGTH*IMAGE_SCALE);
 			glm::vec3 canvasTo3D = {x,y,z};
 			glm::vec3 rdFromCamera = canvasTo3D - CAMERA_POSITION;
-
 			RayTriangleIntersection rayFromCamera = getClosestIntersection(CAMERA_POSITION, rdFromCamera, modelTriangles);
+			size_t indexC = rayFromCamera.triangleIndex;
+
 			if (rayFromCamera.distanceFromCamera!=INFINITY){
-				size_t indexC = rayFromCamera.triangleIndex;
 				glm::vec3 intersectionPointC = rayFromCamera.intersectionPoint;
 				glm::vec3 rdFromLightPoint = intersectionPointC - LIGHT_POINT;
 				RayTriangleIntersection rayFromLightPoint = getClosestIntersection(LIGHT_POINT, rdFromLightPoint, modelTriangles);
 				size_t indexL = rayFromLightPoint.triangleIndex;
 				if (indexL == indexC){
-					Colour triangleColor = rayFromCamera.intersectedTriangle.colour;
-					uint32_t color = (255 << 24) + (triangleColor.red << 16) + (triangleColor.green << 8) + triangleColor.blue;
+					glm::vec3 rdFromSurface = LIGHT_POINT - intersectionPointC;
+					Colour c = getColour(rayFromCamera, rayFromLightPoint, rdFromSurface);
+					uint32_t color = (255 << 24) + (c.red << 16) + (c.green << 8) + c.blue;
 					window.setPixelColour(j, i, color);
 				}
 			}
@@ -483,7 +512,7 @@ int main(int argc, char *argv[]) {
 		// We MUST poll for events - otherwise the window will freeze !
 		if (window.pollForInputEvents(event)) handleEvent(event, window);
 		// rasterisedRender(window);
-		// rayTracingRasterisedScene(window);
+		rayTracingRasterisedScene(window);
 
 		// Need to render the frame at the end, or nothing actually gets shown on the screen !
 		window.renderFrame();
