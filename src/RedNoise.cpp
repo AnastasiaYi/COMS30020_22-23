@@ -41,7 +41,7 @@ float cosine = cos(0.01);
 float sine = sin(0.01);
 
 // Lab 6
-glm::vec3 LIGHT_POINT = {0.0, 0.5, 0.7}; // Hardcoded
+glm::vec3 LIGHT_POINT = {-0.3, 1.6, 1.4}; // Hardcoded
 
 void cleanBuffer() {
 	for(int i = 0; i < HEIGHT; i++) {
@@ -408,7 +408,7 @@ RayTriangleIntersection getClosestIntersection(glm::vec3 startingPoint, glm::vec
 float getProximity(RayTriangleIntersection rayFromLightPoint){
 	glm::vec3 lightToIntersection = rayFromLightPoint.intersectionPoint - LIGHT_POINT;
 	float d = glm::length(lightToIntersection);
-	float proximity = 10/(4*M_PI*pow(d,2));
+	float proximity = 20/(4*M_PI*pow(d,2));
 	// std::cout << "proximity " <<proximity<< std::endl;
 	return glm::clamp(proximity, 0.f, 1.f);
 }
@@ -421,11 +421,10 @@ float getAngleOfIncidence(glm::vec3 rdFromSurface, glm::vec3 normal){
 
 float getSpecular(glm::vec3 rdFromLightPoint, glm::vec3 rdFromCamera, glm::vec3 normal){
 	rdFromCamera = glm::normalize(rdFromCamera);
-	// rdFromLightPoint = glm::normalize(rdFromLightPoint);
-	glm::vec3 reflectionVector = -rdFromLightPoint - 2*normal*glm::dot(-rdFromLightPoint,normal);
-	float s = glm::dot(rdFromCamera,reflectionVector);
+	glm::vec3 reflectionVector = glm::normalize(rdFromLightPoint - 2*normal*glm::dot(rdFromLightPoint,normal));
+	float s = glm::dot(-rdFromCamera,reflectionVector);
 	// if (s<0) s = 0.1;
-	float specular = pow(s, 256);
+	float specular = pow(s, 65);
 	// std::cout << "specular " <<glm::clamp(specular, 0.f, 1.f)<< std::endl;
 	return glm::clamp(specular, 0.f, 1.f);
 }
@@ -496,12 +495,7 @@ glm::vec3 interpolateNormal(glm::vec3 p, RayTriangleIntersection rayFromCamera, 
 	Barycentric(p, rayFromCamera.intersectedTriangle, u, v, w);
 	int index = rayFromCamera.triangleIndex;
 	std::array<glm::vec3,3> normals = verticesNormals[index];
-	// std::cout << "n1 "<< glm::to_string(normals[0])<< " n2 "<< glm::to_string(normals[1]) << " n3 " << glm::to_string(normals[2]) << std::endl;
-	// std::cout << "u "<< u<< " v "<< v << " w " << w << std::endl;
-	// std::cout <<" n3 " << glm::to_string(normals[2]) << std::endl;
-	// glm::vec3 pNormal = glm::normalize(u*normals[0]+v*normals[1]+w*normals[2]);
 	glm::vec3 pNormal = u*normals[0]+v*normals[1]+w*normals[2];
-	// std::cout <<" pNormal " << glm::to_string(pNormal) << std::endl;
 	return pNormal;
 }
 
@@ -532,13 +526,27 @@ std::vector<glm::vec3> getMultipleLight(glm::vec3 lightPoint, int n_layers){
 	return result;
 }
 
-void getMirrorColor(RayTriangleIntersection rti, Colour &c, glm::vec3 intersecP, glm::vec3 reflectionDirection,std::vector<ModelTriangle> modelTriangles){
+void getMirrorColor(RayTriangleIntersection &rti, Colour &c, glm::vec3 intersecP, glm::vec3 reflectionDirection,std::vector<ModelTriangle> modelTriangles){
 	while (rti.intersectedTriangle.colour.name == c.name){
 		intersecP += rti.distanceFromCamera*reflectionDirection;
 		if (rti.distanceFromCamera<1.0e-7) intersecP += 1.0e-6*reflectionDirection;
 		rti = getClosestIntersection(intersecP, reflectionDirection, modelTriangles);
 	}
 	c = rti.intersectedTriangle.colour;
+}
+
+float getSoftShadow(RayTriangleIntersection rayFrom, std::vector<ModelTriangle> modelTriangles, float indexC, float brightness_min){
+	std::vector<glm::vec3> multipleLights = getMultipleLight(LIGHT_POINT, 5);
+	float bri=0.f;
+	for (glm::vec3 l : multipleLights){
+		glm::vec3 intersectionPoint = rayFrom.intersectionPoint;
+		glm::vec3 rdFromLightPoint = intersectionPoint - l;
+		RayTriangleIntersection rayFromLightPoint = getClosestIntersection(l, rdFromLightPoint, modelTriangles);
+		size_t i = rayFromLightPoint.triangleIndex;
+		if (indexC == i) bri +=0.005;
+	}
+	float brightnessS = glm::clamp(bri, 0.f,brightness_min);
+	return brightnessS;
 }
 
 void rayTracingRasterisedScene(DrawingWindow &window, std::string OBJFileName){
@@ -559,50 +567,43 @@ void rayTracingRasterisedScene(DrawingWindow &window, std::string OBJFileName){
 				glm::vec3 rdFromLightPoint = intersectionPointC - LIGHT_POINT;
 				RayTriangleIntersection rayFromLightPoint = getClosestIntersection(LIGHT_POINT, rdFromLightPoint, modelTriangles);
 				size_t indexL = rayFromLightPoint.triangleIndex;
-				float brightness_min = 0.3;
-				glm::vec3 normal = interpolateNormal(intersectionPointC, rayFromCamera,verticesNormals);
+				float brightness_min = 0.38;
+				glm::vec3 normal = interpolateNormal(intersectionPointC,rayFromCamera,verticesNormals);
 				// Draw mirror.
 				Colour triangleColor = modelTriangles[indexC].colour;
 				glm::vec3 reflectionDirection = glm::normalize(rdFromCamera - 2*normal*glm::dot(rdFromCamera, normal));
-				RayTriangleIntersection rti = getClosestIntersection(intersectionPointC, reflectionDirection, modelTriangles);
+				RayTriangleIntersection rayFromMirror = getClosestIntersection(intersectionPointC, reflectionDirection, modelTriangles);
 				glm::vec3 intersecP = intersectionPointC;
-				if (triangleColor.name == "Magenta") getMirrorColor(rti,triangleColor,intersecP,reflectionDirection,modelTriangles);
-				// Draw lighting.
+				if (triangleColor.name == "Magenta") getMirrorColor(rayFromMirror,triangleColor,intersecP,reflectionDirection,modelTriangles);
+				float brightness = 0.f;
+				// Get mirror lighting.
+				if (rayFromMirror.intersectionPoint == LIGHT_POINT) brightness +=0.1;
 				float proximity = getProximity(rayFromLightPoint);
 				float angleOfIncidence = getAngleOfIncidence(-rdFromLightPoint, normal);
 				float specular = getSpecular(rdFromLightPoint, rdFromCamera, normal);
-				// float brightness = proximity;
-				float brightness = glm::clamp(angleOfIncidence * proximity, brightness_min, 1.f);
-				// std::cout << "brightness " << brightness << std::endl;
-				// float brightness = specular;
-				// float brightness = proximity*angleOfIncidence;
-				// float brightness = proximity*angleOfIncidence+specular+brightness_min;
+				brightness = glm::clamp(proximity*angleOfIncidence+specular, brightness_min,1.f);
+
+				// glm::vec3 intersectionPointM = rayFromMirror.intersectionPoint;
+				// glm::vec3 rdFromLightToReflectionPoint = intersectionPointM - LIGHT_POINT;
+				// RayTriangleIntersection rayFromLightToReflectionPoint = 
+				// 						getClosestIntersection(intersectionPointM, rdFromLightToReflectionPoint, modelTriangles);
+				// float indexM = rayFromLightToReflectionPoint.triangleIndex;
+				// if (rayFromMirror.triangleIndex != indexM) brightness = getSoftShadow(rayFromMirror,modelTriangles,indexM,brightness_min);
 				int r = round(static_cast<float>(triangleColor.red) * brightness);
 				int g = round(static_cast<float>(triangleColor.green) * brightness);
 				int b = round(static_cast<float>(triangleColor.blue) * brightness);
 				uint32_t color = (255 << 24) + (r << 16) + (g << 8) + b;
+				if (indexL != indexC){
+					float brightnessS = getSoftShadow(rayFromCamera, modelTriangles, indexC, brightness_min);
+					Colour c = rayFromCamera.intersectedTriangle.colour;
+					if (c.name == "Magenta") getMirrorColor(rayFromMirror,c,intersecP,reflectionDirection,modelTriangles);
+					r = round(static_cast<float>(c.red) * brightnessS);
+					g = round(static_cast<float>(c.green) * brightnessS);
+					b = round(static_cast<float>(c.blue) * brightnessS);
+					color = (255 << 24) + (r << 16) + (g << 8) + b;
+				}
 				window.setPixelColour(j, i, color);
 				// Draw shadow.
-				if (indexL != indexC){
-					std::vector<glm::vec3> multipleLights = getMultipleLight(LIGHT_POINT, 5);
-					float bri=0.f;
-					for (glm::vec3 l : multipleLights){
-						intersectionPointC = rayFromCamera.intersectionPoint;
-						rdFromLightPoint = intersectionPointC - l;
-						rayFromLightPoint = getClosestIntersection(l, rdFromLightPoint, modelTriangles);
-						size_t i = rayFromLightPoint.triangleIndex;
-						if (indexC == i) bri +=0.005;
-					}
-					float brightnessS = glm::clamp(bri, 0.f,brightness_min);
-					std::cout << "brightness shadow " << brightnessS << std::endl;
-					Colour c = rayFromCamera.intersectedTriangle.colour;
-					if (c.name == "Magenta") getMirrorColor(rti,c,intersecP,reflectionDirection,modelTriangles);
-					int r = round(static_cast<float>(c.red) * brightnessS);
-					int g = round(static_cast<float>(c.green) * brightnessS);
-					int b = round(static_cast<float>(c.blue) * brightnessS);
-					uint32_t color = (255 << 24) + (r << 16) + (g << 8) + b;
-					window.setPixelColour(j, i, color);
-				}
 			}
 		}
 	}
@@ -626,19 +627,19 @@ void drawSpherePhong(DrawingWindow &window, std::string OBJFileName){
 				glm::vec3 rdFromLightPoint = intersectionPointC - LIGHT_POINT;
 				RayTriangleIntersection rayFromLightPoint = getClosestIntersection(LIGHT_POINT, rdFromLightPoint, modelTriangles);
 				size_t indexL = rayFromLightPoint.triangleIndex;
-				float brightness_min = 0.2;
-				// glm::vec3 normal = interpolateNormal(intersectionPointC, rayFromCamera, verticesNormals);
-				glm::vec3 normal = rayFromLightPoint.intersectedTriangle.normal;
+				float brightness_min = 0.1;
+				glm::vec3 normal = interpolateNormal(intersectionPointC, rayFromCamera, verticesNormals);
+				// glm::vec3 normal = rayFromLightPoint.intersectedTriangle.normal;
 				float proximity = getProximity(rayFromLightPoint);
 				float angleOfIncidence = getAngleOfIncidence(-1*rdFromLightPoint, normal);
 				float specular = getSpecular(rdFromLightPoint, rdFromCamera, normal);
 				// float brightness = proximity;
 				// float brightness = angleOfIncidence;
-				float brightness = specular;
-				// float brightness = proximity*angleOfIncidence+brightness_min;
+				// float brightness = glm::clamp(specular, brightness_min, 1.f);
+				// float brightness = glm::clamp(proximity*angleOfIncidence, brightness_min, 1.f);
 				// float brightness = proximity*angleOfIncidence;
 				// float brightness = glm::clamp(angleOfIncidence+specular+brightness_min, 0.f, 1.f);
-				// float brightness = glm::clamp(proximity*angleOfIncidence+specular+brightness_min, 0.f, 1.f);
+				float brightness = glm::clamp(proximity*angleOfIncidence+specular, brightness_min, 1.f);
 				// float brightness = proximity*angleOfIncidence+specular;
 				Colour c = {255,0,0};
 				int r = round(static_cast<float>(c.red) * brightness);
@@ -667,29 +668,35 @@ void drawSphereGouraud(DrawingWindow &window, std::string OBJFileName){
 				glm::vec3 rdFromLightPoint = intersectionPointC - LIGHT_POINT;
 				RayTriangleIntersection rayFromLightPoint = getClosestIntersection(LIGHT_POINT, rdFromLightPoint, modelTriangles);
 				size_t indexL = rayFromLightPoint.triangleIndex;
-				float brightness_min = 0.2;
+				float brightness_min = 0.1;
 				// glm::vec3 normal = interpolateNormal(intersectionPointC, rayFromCamera, verticesNormals);
-				if (indexC == indexL){
+				
 					std::array<glm::vec3,3> normals = verticesNormals[indexL];
+					std::vector<float> bs;
 					glm::vec3 brightnesses;
 					for (int i = 0; i < 3; i++){
 						float proximity = getProximity(rayFromLightPoint);
 						float angleOfIncidence = getAngleOfIncidence(-1*rdFromLightPoint, normals[i]);
 						float specular = getSpecular(rdFromLightPoint, rdFromCamera, normals[i]);
 						
-						// float b = glm::clamp(proximity*angleOfIncidence+specular+brightness_min, 0.f, 1.f);
+						float b = glm::clamp(proximity*angleOfIncidence+specular,brightness_min, 1.f);
 						// float b = glm::clamp(proximity+brightness_min, 0.f, 1.f);
-						// float b = glm::clamp(proximity*angleOfIncidence+brightness_min, 0.f, 1.f);
-						float b = glm::clamp(specular+brightness_min, 0.f, 1.f);
-						// float b = glm::clamp(angleOfIncidence+brightness_min, 0.f, 1.f);
-						brightnesses[i] = b;
+						// float b = glm::clamp(proximity*angleOfIncidence, brightness_min, 1.f);
+						// float b = glm::clamp(specular, brightness_min, 1.f);
+						// float b = glm::clamp(angleOfIncidence, brightness_min, 1.f);
+						bs.push_back(b);
 					} 
-					float brightness = interpolateBrightness(intersectionPointC, rayFromCamera, brightnesses);
+					brightnesses.x = bs[0];
+					brightnesses.y = bs[1];
+					brightnesses.z = bs[2];
+					std::cout<<glm::to_string(brightnesses) << std::endl;
+					float brightness = interpolateBrightness(rayFromLightPoint.intersectionPoint, rayFromCamera, brightnesses);
 					Colour c = {255,0,0};
+					// if (indexC !=indexL) brightness = brightness_min;
 					int r = round(static_cast<float>(c.red) * brightness);
 					uint32_t color = (255 << 24) + (r << 16) + (c.green << 8) + c.blue;
 					window.setPixelColour(j, i, color);
-				}
+				
 			}
 		}
 	}
@@ -788,8 +795,9 @@ int main(int argc, char *argv[]) {
 	// loadOBJFile("sphere.obj", LOAD_SCALE);
 	cleanBuffer();
 	// drawSpherePhong(window, "sphere.obj");
-	// drawSphereGouraud(window, "sphere.obj");
-	rayTracingRasterisedScene(window, "cornell-box.obj");
+	drawSphereGouraud(window, "sphere.obj");
+	// rayTracingRasterisedScene(window, "cornell-box.obj");
+	// rayTracingRasterisedScene(window, "logo.obj");
 	while (true) {
 		// We MUST poll for events - otherwise the window will freeze !
 		if (window.pollForInputEvents(event)) handleEvent(event, window);
