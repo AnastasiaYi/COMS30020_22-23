@@ -270,7 +270,7 @@ std::vector<ModelTriangle> loadOBJFile(std::string OBJfilename, float scalingFac
 			glm::vec3 v0 = triVer[0];
 			glm::vec3 v1 = triVer[1];
 			glm::vec3 v2 = triVer[2];
-			glm::vec3 v0v1 = v1-v2;
+			glm::vec3 v0v1 = v1-v0;
 			glm::vec3 v0v2 = v2-v0;
 			glm::vec3 normal = glm::normalize(glm::cross(v0v1,v0v2));
 			Colour c;
@@ -398,7 +398,7 @@ RayTriangleIntersection getClosestIntersection(glm::vec3 startingPoint, glm::vec
 		float v = TUVMatrix[2];
 		if (t < result.distanceFromCamera && t > 0 && u >= 0 && u <= 1 && v >= 0 && v <= 1 && (u + v) <= 1) {
 			glm::vec3 r = startingPoint + t*rayDirection;
-			RayTriangleIntersection rti = RayTriangleIntersection(r, TUVMatrix[0], modelTriangles[i], i);
+			RayTriangleIntersection rti = RayTriangleIntersection(r, t, modelTriangles[i], i);
 			result = rti;
 		}
 	}
@@ -532,6 +532,15 @@ std::vector<glm::vec3> getMultipleLight(glm::vec3 lightPoint, int n_layers){
 	return result;
 }
 
+void getMirrorColor(RayTriangleIntersection rti, Colour &c, glm::vec3 intersecP, glm::vec3 reflectionDirection,std::vector<ModelTriangle> modelTriangles){
+	while (rti.intersectedTriangle.colour.name == c.name){
+		intersecP += rti.distanceFromCamera*reflectionDirection;
+		if (rti.distanceFromCamera<1.0e-7) intersecP += 1.0e-6*reflectionDirection;
+		rti = getClosestIntersection(intersecP, reflectionDirection, modelTriangles);
+	}
+	c = rti.intersectedTriangle.colour;
+}
+
 void rayTracingRasterisedScene(DrawingWindow &window, std::string OBJFileName){
 	std::vector<ModelTriangle> modelTriangles = loadOBJFile(OBJFileName,LOAD_SCALE);
 	std::vector<std::array<glm::vec3,3>> verticesNormals = getVertexNormal(OBJFileName,modelTriangles);
@@ -550,35 +559,30 @@ void rayTracingRasterisedScene(DrawingWindow &window, std::string OBJFileName){
 				glm::vec3 rdFromLightPoint = intersectionPointC - LIGHT_POINT;
 				RayTriangleIntersection rayFromLightPoint = getClosestIntersection(LIGHT_POINT, rdFromLightPoint, modelTriangles);
 				size_t indexL = rayFromLightPoint.triangleIndex;
-				float brightness_min = 0.2;
-				// if (indexL == indexC){
-					Colour triangleColor = modelTriangles[indexC].colour;
-					glm::vec3 normal = interpolateNormal(intersectionPointC, rayFromCamera,verticesNormals);
-					if (triangleColor.name == "Green"){
-						std::cout << "triangleColor.name1" << triangleColor.name << std::endl;
-						glm::vec3 n = rayFromLightPoint.intersectedTriangle.normal;
-						glm::vec3 reflectionMatrix = rdFromCamera - 2*normal*glm::dot(rdFromCamera, n);
-						RayTriangleIntersection rti = getClosestIntersection(intersectionPointC, reflectionMatrix, modelTriangles);
-						triangleColor = rti.intersectedTriangle.colour;
-						std::cout << "triangleColor.name2" << triangleColor.name << std::endl;
-					}
-					glm::vec3 rdFromSurface = -rdFromLightPoint;
-					float proximity = getProximity(rayFromLightPoint);
-					float angleOfIncidence = getAngleOfIncidence(rdFromSurface, normal);
-					float specular = getSpecular(rdFromLightPoint, rdFromCamera, normal);
-					// float brightness = proximity;
-					// float brightness = glm::clamp(angleOfIncidence * proximity, brightness_min, 1.f);
-					// float brightness = specular;
-					float brightness = proximity*angleOfIncidence;
-					// float brightness = proximity*angleOfIncidence+specular+brightness_min;
-					// if (brightness>1) brightness = 1;
-					// else if (brightness<brightness_min) brightness = brightness_min;
-					int r = round(static_cast<float>(triangleColor.red) * brightness);
-					int g = round(static_cast<float>(triangleColor.green) * brightness);
-					int b = round(static_cast<float>(triangleColor.blue) * brightness);
-					uint32_t color = (255 << 24) + (r << 16) + (g << 8) + b;
-					window.setPixelColour(j, i, color);
-				// }
+				float brightness_min = 0.3;
+				glm::vec3 normal = interpolateNormal(intersectionPointC, rayFromCamera,verticesNormals);
+				// Draw mirror.
+				Colour triangleColor = modelTriangles[indexC].colour;
+				glm::vec3 reflectionDirection = glm::normalize(rdFromCamera - 2*normal*glm::dot(rdFromCamera, normal));
+				RayTriangleIntersection rti = getClosestIntersection(intersectionPointC, reflectionDirection, modelTriangles);
+				glm::vec3 intersecP = intersectionPointC;
+				if (triangleColor.name == "Magenta") getMirrorColor(rti,triangleColor,intersecP,reflectionDirection,modelTriangles);
+				// Draw lighting.
+				float proximity = getProximity(rayFromLightPoint);
+				float angleOfIncidence = getAngleOfIncidence(-rdFromLightPoint, normal);
+				float specular = getSpecular(rdFromLightPoint, rdFromCamera, normal);
+				// float brightness = proximity;
+				float brightness = glm::clamp(angleOfIncidence * proximity, brightness_min, 1.f);
+				// std::cout << "brightness " << brightness << std::endl;
+				// float brightness = specular;
+				// float brightness = proximity*angleOfIncidence;
+				// float brightness = proximity*angleOfIncidence+specular+brightness_min;
+				int r = round(static_cast<float>(triangleColor.red) * brightness);
+				int g = round(static_cast<float>(triangleColor.green) * brightness);
+				int b = round(static_cast<float>(triangleColor.blue) * brightness);
+				uint32_t color = (255 << 24) + (r << 16) + (g << 8) + b;
+				window.setPixelColour(j, i, color);
+				// Draw shadow.
 				if (indexL != indexC){
 					std::vector<glm::vec3> multipleLights = getMultipleLight(LIGHT_POINT, 5);
 					float bri=0.f;
@@ -589,11 +593,13 @@ void rayTracingRasterisedScene(DrawingWindow &window, std::string OBJFileName){
 						size_t i = rayFromLightPoint.triangleIndex;
 						if (indexC == i) bri +=0.005;
 					}
-					float brightness = glm::clamp(bri, 0.f,brightness_min);
+					float brightnessS = glm::clamp(bri, 0.f,brightness_min);
+					std::cout << "brightness shadow " << brightnessS << std::endl;
 					Colour c = rayFromCamera.intersectedTriangle.colour;
-					int r = round(static_cast<float>(c.red) * brightness);
-					int g = round(static_cast<float>(c.green) * brightness);
-					int b = round(static_cast<float>(c.blue) * brightness);
+					if (c.name == "Magenta") getMirrorColor(rti,c,intersecP,reflectionDirection,modelTriangles);
+					int r = round(static_cast<float>(c.red) * brightnessS);
+					int g = round(static_cast<float>(c.green) * brightnessS);
+					int b = round(static_cast<float>(c.blue) * brightnessS);
 					uint32_t color = (255 << 24) + (r << 16) + (g << 8) + b;
 					window.setPixelColour(j, i, color);
 				}
