@@ -3,22 +3,15 @@
 #include <Utils.h>
 #include <fstream>
 #include <vector>
-// Lab 2 Task 4
 #include <glm/glm.hpp>
 #include "glm/ext.hpp"
-// Lab 3 Task 2
 #include <CanvasPoint.h>
 #include <Colour.h>
-// Lab 3 Task 3
 #include <CanvasTriangle.h>
-// Lab 3 Task 5
 #include <TextureMap.h>
-// Lab 4 Task 2
 #include <ModelTriangle.h>
 #include <iostream>
-// Lab 4 Task 3
 #include <map>
-// Lab 6 Task 2
 #include <RayTriangleIntersection.h>
 
 // #define WIDTH 320
@@ -41,7 +34,7 @@ float cosine = cos(0.01);
 float sine = sin(0.01);
 
 // Lab 6
-glm::vec3 LIGHT_POINT = {-0.3, 1.6, 1.4}; // Hardcoded
+glm::vec3 LIGHT_POINT = {-0.0, 0.6, 0.4}; // Hardcoded
 
 void cleanBuffer() {
 	for(int i = 0; i < HEIGHT; i++) {
@@ -192,7 +185,7 @@ void drawTextureTriangle(DrawingWindow &window, CanvasPoint v0, CanvasPoint v1, 
 	drawStrokedTriangle(window,sortedTriangle.v0(),sortedTriangle.v1(), sortedTriangle.v2(), {255,255,255});
 }
 
-std::map<std::string, Colour> loadMTLFile(std::string filename) {
+std::map<std::string, Colour> loadMTLFile(std::string filename, std::string &textureFileName) {
 	std::map<std::string, Colour> result;
 	std::ifstream MTLFile(filename);
 	std::string line;
@@ -209,11 +202,12 @@ std::map<std::string, Colour> loadMTLFile(std::string filename) {
 			Colour c = {name[name.size()-1],static_cast<int>(r),static_cast<int>(g),static_cast<int>(b)};
 			result[c.name] = c;
 		}
+		else if (splitedLine[0]=="map_Kd") textureFileName = splitedLine[1];
 	}
 	return result;
 }
 
-std::vector<ModelTriangle> loadOBJFile(std::string OBJfilename, float scalingFactor){
+std::vector<ModelTriangle> loadOBJFile(std::string OBJfilename, float scalingFactor, std::string &textureFileName){
 	if (scalingFactor==0.0) throw std::invalid_argument( "Scaling factor shouldn't be zero!" );
 	std::vector<ModelTriangle> result;
 	std::ifstream OBJFile(OBJfilename);
@@ -232,7 +226,7 @@ std::vector<ModelTriangle> loadOBJFile(std::string OBJfilename, float scalingFac
 		else if (splitedLine[0]=="mtllib"){
 			// Read .mtl file. Store all values in mtl.
 			MTLfilename = splitedLine[1];
-			mtl = loadMTLFile(MTLfilename);
+			mtl = loadMTLFile(MTLfilename, textureFileName);
 		}
 		else if (splitedLine[0] == "v"){
 			// Load vertices.
@@ -243,8 +237,9 @@ std::vector<ModelTriangle> loadOBJFile(std::string OBJfilename, float scalingFac
 		}
 		else if (splitedLine[0] == "vt"){
 			// Load Texture points.
-			float x = std::stof(splitedLine[1]);
-			float y = std::stof(splitedLine[2]);
+			TextureMap textureMap = TextureMap(textureFileName);
+			float x = std::stof(splitedLine[1])*textureMap.width;
+			float y = std::stof(splitedLine[2])*textureMap.height;
 			texture_vertices.push_back({x,y});
 
 		}
@@ -304,8 +299,18 @@ CanvasPoint getCanvasIntersectionPoint(glm::vec3 cameraPosition, glm::vec3 verte
 	return CanvasPoint(u,v,d);
 }
 
+CanvasPoint getCanvasPoint(glm::vec3 cameraPosition, glm::vec3 vertexPosition, float focalLength, float imagePlaneScaling){
+	// glm::vec3 vertexP = (vertexPosition-cameraPosition)*CAMERA_ORIENTATION;
+	glm::vec3 vertexP = vertexPosition-cameraPosition;
+	float u = -imagePlaneScaling*focalLength * vertexP.x/vertexP.z + WIDTH/2;
+	float v = imagePlaneScaling*focalLength * vertexP.y/vertexP.z + HEIGHT/2;
+	float d = 1/vertexP.z;
+	return CanvasPoint(u,v,d);
+}
+
 void pointcloud(DrawingWindow &window){
-	std::vector<ModelTriangle> modelTriangles = loadOBJFile("cornell-box.obj",LOAD_SCALE);
+	std::string textureFileName;
+	std::vector<ModelTriangle> modelTriangles = loadOBJFile("cornell-box.obj",LOAD_SCALE, textureFileName);
 	uint32_t color = (255 << 24) + (255 << 16) + (255 << 8) + 255;
 	for (int i = 0; i < modelTriangles.size(); i++){
 		std::array<glm::vec3,3> vertices = modelTriangles[i].vertices;
@@ -318,7 +323,8 @@ void pointcloud(DrawingWindow &window){
 
 void wireframeRender(DrawingWindow &window){
 	cleanBuffer();
-	std::vector<ModelTriangle> modelTriangles = loadOBJFile("cornell-box.obj",LOAD_SCALE);
+	std::string textureFileName;
+	std::vector<ModelTriangle> modelTriangles = loadOBJFile("cornell-box.obj",LOAD_SCALE, textureFileName);
 	for (int i = 0; i < modelTriangles.size(); i++){
 		std::array<glm::vec3,3> vertices = modelTriangles[i].vertices;
 		glm::vec3 v0 = vertices[0];
@@ -333,7 +339,8 @@ void wireframeRender(DrawingWindow &window){
 
 void rasterisedRender(DrawingWindow &window){
 	cleanBuffer();
-	std::vector<ModelTriangle> modelTriangles = loadOBJFile("cornell-box.obj",LOAD_SCALE);
+	std::string textureFileName;
+	std::vector<ModelTriangle> modelTriangles = loadOBJFile("cornell-box.obj",LOAD_SCALE,textureFileName);
 	for (int i = 0; i < modelTriangles.size(); i++){
 		std::array<glm::vec3,3> vertices = modelTriangles[i].vertices;
 		glm::vec3 v0 = vertices[0];
@@ -549,8 +556,80 @@ float getSoftShadow(RayTriangleIntersection rayFrom, std::vector<ModelTriangle> 
 	return brightnessS;
 }
 
+uint32_t getTextureColor(std::string textureFileName, ModelTriangle intersectedTriangleC, float x, float y){
+	TextureMap textureMap = TextureMap(textureFileName);
+	CanvasPoint v0 = getCanvasPoint(CAMERA_POSITION, intersectedTriangleC.vertices[0], FOCAL_LENGTH, IMAGE_SCALE);
+	CanvasPoint v1 = getCanvasPoint(CAMERA_POSITION, intersectedTriangleC.vertices[1], FOCAL_LENGTH, IMAGE_SCALE);
+	CanvasPoint v2 = getCanvasPoint(CAMERA_POSITION, intersectedTriangleC.vertices[2], FOCAL_LENGTH, IMAGE_SCALE);
+	v0.texturePoint = intersectedTriangleC.texturePoints[0];
+	v1.texturePoint = intersectedTriangleC.texturePoints[1];
+	v2.texturePoint = intersectedTriangleC.texturePoints[2];
+	glm::mat3 texture = glm::mat3(v0.texturePoint.x,v0.texturePoint.y,1,
+						 v1.texturePoint.x,v1.texturePoint.y,1,
+						 v2.texturePoint.x,v2.texturePoint.y,1);
+				
+	glm::mat3 canvas = glm::mat3(round(v0.x),round(v0.y),1, 
+								round(v1.x),round(v1.y),1,
+								round(v2.x),round(v2.y),1);
+	glm::mat3 canvasInverse = glm::inverse(canvas);
+	glm::mat3 affine = texture*canvasInverse;
+	glm::vec3 c = {x,y,1};
+	glm::vec3 t = affine*c;
+	int tx = t[0];
+	int ty = t[1];
+	uint32_t color = textureMap.pixels[round(ty*textureMap.width+tx)];
+	return color;
+}
+
+
+
+// void drawTexturedScene(DrawingWindow &window, std::string OBJFileName){
+// 	std::string textureFileName;
+// 	std::vector<ModelTriangle> modelTriangles = loadOBJFile(OBJFileName, LOAD_SCALE, textureFileName);
+// 	std::vector<std::array<glm::vec3,3>> verticesNormals = getVertexNormal(OBJFileName, modelTriangles);
+// 	for (float i = 0; i < HEIGHT; i++){
+// 		for (float j = 0; j < WIDTH; j++){
+// 			float z = CAMERA_POSITION.z - FOCAL_LENGTH;
+// 			float x = (j-WIDTH/2)*z/(FOCAL_LENGTH*IMAGE_SCALE);
+// 			float y = -1*(i-HEIGHT/2)*z/(FOCAL_LENGTH*IMAGE_SCALE);
+// 			glm::vec3 canvasTo3D = {x,y,z};
+// 			glm::vec3 rdFromCamera = canvasTo3D - CAMERA_POSITION;
+// 			RayTriangleIntersection rayFromCamera = getClosestIntersection(CAMERA_POSITION, rdFromCamera, modelTriangles);
+// 			size_t indexC = rayFromCamera.triangleIndex;
+
+// 			if (rayFromCamera.distanceFromCamera!=INFINITY){
+// 				glm::vec3 intersectionPointC = rayFromCamera.intersectionPoint;
+// 				glm::vec3 rdFromLightPoint = intersectionPointC - LIGHT_POINT;
+// 				RayTriangleIntersection rayFromLightPoint = getClosestIntersection(LIGHT_POINT, rdFromLightPoint, modelTriangles);
+// 				size_t indexL = rayFromLightPoint.triangleIndex;
+// 				float brightness_min = 0.1;
+// 				// glm::vec3 normal = interpolateNormal(intersectionPointC, rayFromCamera, verticesNormals);
+// 				// glm::vec3 normal = rayFromLightPoint.intersectedTriangle.normal;
+// 				// float proximity = getProximity(rayFromLightPoint);
+// 				// float angleOfIncidence = getAngleOfIncidence(-1*rdFromLightPoint, normal);
+// 				// float specular = getSpecular(rdFromLightPoint, rdFromCamera, normal);
+// 				// float brightness = glm::clamp(proximity*angleOfIncidence+specular, brightness_min, 1.f);
+// 				float brightness = 1.f;
+				
+// 				ModelTriangle intersectedTriangleC = rayFromCamera.intersectedTriangle;
+// 				Colour triangleColor = intersectedTriangleC.colour;
+// 				int r = round(static_cast<float>(triangleColor.red) * brightness);
+// 				int g = round(static_cast<float>(triangleColor.green) * brightness);
+// 				int b = round(static_cast<float>(triangleColor.blue) * brightness);
+// 				uint32_t color = (255 << 24) + (r << 16) + (g << 8) + b;
+// 				if (triangleColor.name == "Cobbles")
+// 					color = getTextureColor(textureFileName, intersectedTriangleC, j, i)*brightness;
+// 				
+// 				window.setPixelColour(j, i, color);
+// 			}
+// 		}
+// 	}
+
+// }
+
 void rayTracingRasterisedScene(DrawingWindow &window, std::string OBJFileName){
-	std::vector<ModelTriangle> modelTriangles = loadOBJFile(OBJFileName,LOAD_SCALE);
+	std::string textureFileName;
+	std::vector<ModelTriangle> modelTriangles = loadOBJFile(OBJFileName,LOAD_SCALE,textureFileName);
 	std::vector<std::array<glm::vec3,3>> verticesNormals = getVertexNormal(OBJFileName,modelTriangles);
 	for (float i = 0; i < HEIGHT; i++){
 		for (float j = 0; j < WIDTH; j++){
@@ -570,47 +649,43 @@ void rayTracingRasterisedScene(DrawingWindow &window, std::string OBJFileName){
 				float brightness_min = 0.38;
 				glm::vec3 normal = interpolateNormal(intersectionPointC,rayFromCamera,verticesNormals);
 				// Draw mirror.
-				Colour triangleColor = modelTriangles[indexC].colour;
+				ModelTriangle intersectedTriangleC = modelTriangles[indexC];
+				Colour triangleColor = intersectedTriangleC.colour;
 				glm::vec3 reflectionDirection = glm::normalize(rdFromCamera - 2*normal*glm::dot(rdFromCamera, normal));
 				RayTriangleIntersection rayFromMirror = getClosestIntersection(intersectionPointC, reflectionDirection, modelTriangles);
-				glm::vec3 intersecP = intersectionPointC;
-				if (triangleColor.name == "Magenta") getMirrorColor(rayFromMirror,triangleColor,intersecP,reflectionDirection,modelTriangles);
+				if (triangleColor.name == "Magenta") getMirrorColor(rayFromMirror,triangleColor,intersectionPointC,reflectionDirection,modelTriangles);
+
 				float brightness = 0.f;
-				// Get mirror lighting.
 				if (rayFromMirror.intersectionPoint == LIGHT_POINT) brightness +=0.1;
 				float proximity = getProximity(rayFromLightPoint);
 				float angleOfIncidence = getAngleOfIncidence(-rdFromLightPoint, normal);
 				float specular = getSpecular(rdFromLightPoint, rdFromCamera, normal);
 				brightness = glm::clamp(proximity*angleOfIncidence+specular, brightness_min,1.f);
 
-				// glm::vec3 intersectionPointM = rayFromMirror.intersectionPoint;
-				// glm::vec3 rdFromLightToReflectionPoint = intersectionPointM - LIGHT_POINT;
-				// RayTriangleIntersection rayFromLightToReflectionPoint = 
-				// 						getClosestIntersection(intersectionPointM, rdFromLightToReflectionPoint, modelTriangles);
-				// float indexM = rayFromLightToReflectionPoint.triangleIndex;
-				// if (rayFromMirror.triangleIndex != indexM) brightness = getSoftShadow(rayFromMirror,modelTriangles,indexM,brightness_min);
 				int r = round(static_cast<float>(triangleColor.red) * brightness);
 				int g = round(static_cast<float>(triangleColor.green) * brightness);
 				int b = round(static_cast<float>(triangleColor.blue) * brightness);
 				uint32_t color = (255 << 24) + (r << 16) + (g << 8) + b;
+				if (triangleColor.name == "Cobbles") color = getTextureColor(textureFileName, intersectedTriangleC, j, i);
 				if (indexL != indexC){
 					float brightnessS = getSoftShadow(rayFromCamera, modelTriangles, indexC, brightness_min);
 					Colour c = rayFromCamera.intersectedTriangle.colour;
-					if (c.name == "Magenta") getMirrorColor(rayFromMirror,c,intersecP,reflectionDirection,modelTriangles);
+					if (c.name == "Magenta") getMirrorColor(rayFromMirror,c,intersectionPointC,reflectionDirection,modelTriangles);
 					r = round(static_cast<float>(c.red) * brightnessS);
 					g = round(static_cast<float>(c.green) * brightnessS);
 					b = round(static_cast<float>(c.blue) * brightnessS);
 					color = (255 << 24) + (r << 16) + (g << 8) + b;
+					if (triangleColor.name == "Cobbles") color = getTextureColor(textureFileName, intersectedTriangleC, j, i)*brightnessS;
 				}
 				window.setPixelColour(j, i, color);
-				// Draw shadow.
 			}
 		}
 	}
 }
 
 void drawSpherePhong(DrawingWindow &window, std::string OBJFileName){
-	std::vector<ModelTriangle> modelTriangles = loadOBJFile(OBJFileName, LOAD_SCALE);
+	std::string textureFileName;
+	std::vector<ModelTriangle> modelTriangles = loadOBJFile(OBJFileName, LOAD_SCALE, textureFileName);
 	std::vector<std::array<glm::vec3,3>> verticesNormals = getVertexNormal(OBJFileName, modelTriangles);
 	for (float i = 0; i < HEIGHT; i++){
 		for (float j = 0; j < WIDTH; j++){
@@ -651,7 +726,8 @@ void drawSpherePhong(DrawingWindow &window, std::string OBJFileName){
 }
 
 void drawSphereGouraud(DrawingWindow &window, std::string OBJFileName){
-	std::vector<ModelTriangle> modelTriangles = loadOBJFile(OBJFileName, LOAD_SCALE);
+	std::string textureFileName;
+	std::vector<ModelTriangle> modelTriangles = loadOBJFile(OBJFileName, LOAD_SCALE,textureFileName);
 	std::vector<std::array<glm::vec3,3>> verticesNormals = getVertexNormal(OBJFileName, modelTriangles);
 	for (float i = 0; i < HEIGHT; i++){
 		for (float j = 0; j < WIDTH; j++){
@@ -795,9 +871,10 @@ int main(int argc, char *argv[]) {
 	// loadOBJFile("sphere.obj", LOAD_SCALE);
 	cleanBuffer();
 	// drawSpherePhong(window, "sphere.obj");
-	drawSphereGouraud(window, "sphere.obj");
+	// drawSphereGouraud(window, "sphere.obj");
 	// rayTracingRasterisedScene(window, "cornell-box.obj");
-	// rayTracingRasterisedScene(window, "logo.obj");
+	rayTracingRasterisedScene(window, "textured-cornell-box.obj");
+	// drawTexturedScene(window, "textured-cornell-box.obj");
 	while (true) {
 		// We MUST poll for events - otherwise the window will freeze !
 		if (window.pollForInputEvents(event)) handleEvent(event, window);
