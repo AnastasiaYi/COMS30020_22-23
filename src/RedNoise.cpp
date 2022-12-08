@@ -34,7 +34,8 @@ float cosine = cos(0.01);
 float sine = sin(0.01);
 
 // Lab 6
-glm::vec3 LIGHT_POINT = {-0.0, 0.6, 0.4}; // Hardcoded
+glm::vec3 LIGHT_POINT = {0.0, 0.7, 0.4}; // Hardcoded
+int a = 1;
 
 void cleanBuffer() {
 	for(int i = 0; i < HEIGHT; i++) {
@@ -299,15 +300,6 @@ CanvasPoint getCanvasIntersectionPoint(glm::vec3 cameraPosition, glm::vec3 verte
 	return CanvasPoint(u,v,d);
 }
 
-CanvasPoint getCanvasPoint(glm::vec3 cameraPosition, glm::vec3 vertexPosition, float focalLength, float imagePlaneScaling){
-	// glm::vec3 vertexP = (vertexPosition-cameraPosition)*CAMERA_ORIENTATION;
-	glm::vec3 vertexP = vertexPosition-cameraPosition;
-	float u = -imagePlaneScaling*focalLength * vertexP.x/vertexP.z + WIDTH/2;
-	float v = imagePlaneScaling*focalLength * vertexP.y/vertexP.z + HEIGHT/2;
-	float d = 1/vertexP.z;
-	return CanvasPoint(u,v,d);
-}
-
 void pointcloud(DrawingWindow &window){
 	std::string textureFileName;
 	std::vector<ModelTriangle> modelTriangles = loadOBJFile("cornell-box.obj",LOAD_SCALE, textureFileName);
@@ -373,7 +365,6 @@ void cameraRotation(glm::mat3 m, DrawingWindow &window){
 	window.clearPixels();
 	CAMERA_POSITION = m*CAMERA_POSITION;
 	lookAt({0,0,0});
-	rasterisedRender(window);
 }
 
 void orbit(DrawingWindow &window,SDL_Event event){
@@ -383,8 +374,8 @@ void orbit(DrawingWindow &window,SDL_Event event){
 	while (true){
 		if (window.pollForInputEvents(event)) if (event.key.keysym.sym == 'q') break;
 		cameraRotation(m, window);
+		rasterisedRender(window);
 		window.renderFrame();
-		
 	}
 }
 
@@ -429,9 +420,9 @@ float getAngleOfIncidence(glm::vec3 rdFromSurface, glm::vec3 normal){
 float getSpecular(glm::vec3 rdFromLightPoint, glm::vec3 rdFromCamera, glm::vec3 normal){
 	rdFromCamera = glm::normalize(rdFromCamera);
 	glm::vec3 reflectionVector = glm::normalize(rdFromLightPoint - 2*normal*glm::dot(rdFromLightPoint,normal));
-	float s = glm::dot(-rdFromCamera,reflectionVector);
+	float s = glm::clamp(glm::dot(-rdFromCamera,reflectionVector));
 	// if (s<0) s = 0.1;
-	float specular = pow(s, 65);
+	float specular = pow(s, 64);
 	// std::cout << "specular " <<glm::clamp(specular, 0.f, 1.f)<< std::endl;
 	return glm::clamp(specular, 0.f, 1.f);
 }
@@ -556,11 +547,26 @@ float getSoftShadow(RayTriangleIntersection rayFrom, std::vector<ModelTriangle> 
 	return brightnessS;
 }
 
-uint32_t getTextureColor(std::string textureFileName, ModelTriangle intersectedTriangleC, float x, float y){
+uint32_t getTextureShadow(uint32_t color, float brightness){
+	int grey = color >> 24;
+	int b = color&0xff;
+	int g = (color>>8)&0xff;
+	int r = (color>>16)&0xff;
+	float rf = static_cast<float>(r);
+	float gf = static_cast<float>(g);
+	float bf = static_cast<float>(b);
+	r = static_cast<int>(round(rf*brightness));
+	g = static_cast<int>(round(gf*brightness));
+	b = static_cast<int>(round(bf*brightness));
+	uint32_t c = (grey << 24) + (r << 16) + (g << 8) + b;
+	return c;
+}
+
+uint32_t getTextureColor(std::string textureFileName, ModelTriangle intersectedTriangleC, float x, float y, float brightness){
 	TextureMap textureMap = TextureMap(textureFileName);
-	CanvasPoint v0 = getCanvasPoint(CAMERA_POSITION, intersectedTriangleC.vertices[0], FOCAL_LENGTH, IMAGE_SCALE);
-	CanvasPoint v1 = getCanvasPoint(CAMERA_POSITION, intersectedTriangleC.vertices[1], FOCAL_LENGTH, IMAGE_SCALE);
-	CanvasPoint v2 = getCanvasPoint(CAMERA_POSITION, intersectedTriangleC.vertices[2], FOCAL_LENGTH, IMAGE_SCALE);
+	CanvasPoint v0 = getCanvasIntersectionPoint(CAMERA_POSITION, intersectedTriangleC.vertices[0], FOCAL_LENGTH, IMAGE_SCALE);
+	CanvasPoint v1 = getCanvasIntersectionPoint(CAMERA_POSITION, intersectedTriangleC.vertices[1], FOCAL_LENGTH, IMAGE_SCALE);
+	CanvasPoint v2 = getCanvasIntersectionPoint(CAMERA_POSITION, intersectedTriangleC.vertices[2], FOCAL_LENGTH, IMAGE_SCALE);
 	v0.texturePoint = intersectedTriangleC.texturePoints[0];
 	v1.texturePoint = intersectedTriangleC.texturePoints[1];
 	v2.texturePoint = intersectedTriangleC.texturePoints[2];
@@ -578,54 +584,9 @@ uint32_t getTextureColor(std::string textureFileName, ModelTriangle intersectedT
 	int tx = t[0];
 	int ty = t[1];
 	uint32_t color = textureMap.pixels[round(ty*textureMap.width+tx)];
+	color = getTextureShadow(color, brightness);
 	return color;
 }
-
-
-
-// void drawTexturedScene(DrawingWindow &window, std::string OBJFileName){
-// 	std::string textureFileName;
-// 	std::vector<ModelTriangle> modelTriangles = loadOBJFile(OBJFileName, LOAD_SCALE, textureFileName);
-// 	std::vector<std::array<glm::vec3,3>> verticesNormals = getVertexNormal(OBJFileName, modelTriangles);
-// 	for (float i = 0; i < HEIGHT; i++){
-// 		for (float j = 0; j < WIDTH; j++){
-// 			float z = CAMERA_POSITION.z - FOCAL_LENGTH;
-// 			float x = (j-WIDTH/2)*z/(FOCAL_LENGTH*IMAGE_SCALE);
-// 			float y = -1*(i-HEIGHT/2)*z/(FOCAL_LENGTH*IMAGE_SCALE);
-// 			glm::vec3 canvasTo3D = {x,y,z};
-// 			glm::vec3 rdFromCamera = canvasTo3D - CAMERA_POSITION;
-// 			RayTriangleIntersection rayFromCamera = getClosestIntersection(CAMERA_POSITION, rdFromCamera, modelTriangles);
-// 			size_t indexC = rayFromCamera.triangleIndex;
-
-// 			if (rayFromCamera.distanceFromCamera!=INFINITY){
-// 				glm::vec3 intersectionPointC = rayFromCamera.intersectionPoint;
-// 				glm::vec3 rdFromLightPoint = intersectionPointC - LIGHT_POINT;
-// 				RayTriangleIntersection rayFromLightPoint = getClosestIntersection(LIGHT_POINT, rdFromLightPoint, modelTriangles);
-// 				size_t indexL = rayFromLightPoint.triangleIndex;
-// 				float brightness_min = 0.1;
-// 				// glm::vec3 normal = interpolateNormal(intersectionPointC, rayFromCamera, verticesNormals);
-// 				// glm::vec3 normal = rayFromLightPoint.intersectedTriangle.normal;
-// 				// float proximity = getProximity(rayFromLightPoint);
-// 				// float angleOfIncidence = getAngleOfIncidence(-1*rdFromLightPoint, normal);
-// 				// float specular = getSpecular(rdFromLightPoint, rdFromCamera, normal);
-// 				// float brightness = glm::clamp(proximity*angleOfIncidence+specular, brightness_min, 1.f);
-// 				float brightness = 1.f;
-				
-// 				ModelTriangle intersectedTriangleC = rayFromCamera.intersectedTriangle;
-// 				Colour triangleColor = intersectedTriangleC.colour;
-// 				int r = round(static_cast<float>(triangleColor.red) * brightness);
-// 				int g = round(static_cast<float>(triangleColor.green) * brightness);
-// 				int b = round(static_cast<float>(triangleColor.blue) * brightness);
-// 				uint32_t color = (255 << 24) + (r << 16) + (g << 8) + b;
-// 				if (triangleColor.name == "Cobbles")
-// 					color = getTextureColor(textureFileName, intersectedTriangleC, j, i)*brightness;
-// 				
-// 				window.setPixelColour(j, i, color);
-// 			}
-// 		}
-// 	}
-
-// }
 
 void rayTracingRasterisedScene(DrawingWindow &window, std::string OBJFileName){
 	std::string textureFileName;
@@ -666,7 +627,7 @@ void rayTracingRasterisedScene(DrawingWindow &window, std::string OBJFileName){
 				int g = round(static_cast<float>(triangleColor.green) * brightness);
 				int b = round(static_cast<float>(triangleColor.blue) * brightness);
 				uint32_t color = (255 << 24) + (r << 16) + (g << 8) + b;
-				if (triangleColor.name == "Cobbles") color = getTextureColor(textureFileName, intersectedTriangleC, j, i);
+				if (triangleColor.name == "Cobbles") color = getTextureColor(textureFileName, intersectedTriangleC, j, i, brightness);
 				if (indexL != indexC){
 					float brightnessS = getSoftShadow(rayFromCamera, modelTriangles, indexC, brightness_min);
 					Colour c = rayFromCamera.intersectedTriangle.colour;
@@ -675,7 +636,7 @@ void rayTracingRasterisedScene(DrawingWindow &window, std::string OBJFileName){
 					g = round(static_cast<float>(c.green) * brightnessS);
 					b = round(static_cast<float>(c.blue) * brightnessS);
 					color = (255 << 24) + (r << 16) + (g << 8) + b;
-					if (triangleColor.name == "Cobbles") color = getTextureColor(textureFileName, intersectedTriangleC, j, i)*brightnessS;
+					if (triangleColor.name == "Cobbles") color = getTextureColor(textureFileName, intersectedTriangleC, j, i, brightnessS);
 				}
 				window.setPixelColour(j, i, color);
 			}
@@ -702,20 +663,12 @@ void drawSpherePhong(DrawingWindow &window, std::string OBJFileName){
 				glm::vec3 rdFromLightPoint = intersectionPointC - LIGHT_POINT;
 				RayTriangleIntersection rayFromLightPoint = getClosestIntersection(LIGHT_POINT, rdFromLightPoint, modelTriangles);
 				size_t indexL = rayFromLightPoint.triangleIndex;
-				float brightness_min = 0.1;
+				float brightness_min = 0.3;
 				glm::vec3 normal = interpolateNormal(intersectionPointC, rayFromCamera, verticesNormals);
-				// glm::vec3 normal = rayFromLightPoint.intersectedTriangle.normal;
 				float proximity = getProximity(rayFromLightPoint);
 				float angleOfIncidence = getAngleOfIncidence(-1*rdFromLightPoint, normal);
 				float specular = getSpecular(rdFromLightPoint, rdFromCamera, normal);
-				// float brightness = proximity;
-				// float brightness = angleOfIncidence;
-				// float brightness = glm::clamp(specular, brightness_min, 1.f);
-				// float brightness = glm::clamp(proximity*angleOfIncidence, brightness_min, 1.f);
-				// float brightness = proximity*angleOfIncidence;
-				// float brightness = glm::clamp(angleOfIncidence+specular+brightness_min, 0.f, 1.f);
 				float brightness = glm::clamp(proximity*angleOfIncidence+specular, brightness_min, 1.f);
-				// float brightness = proximity*angleOfIncidence+specular;
 				Colour c = {255,0,0};
 				int r = round(static_cast<float>(c.red) * brightness);
 				uint32_t color = (255 << 24) + (r << 16) + (c.green << 8) + c.blue;
@@ -734,7 +687,7 @@ void drawSphereGouraud(DrawingWindow &window, std::string OBJFileName){
 			float z = CAMERA_POSITION.z - FOCAL_LENGTH;
 			float x = (j-WIDTH/2)*z/(FOCAL_LENGTH*IMAGE_SCALE);
 			float y = -1*(i-HEIGHT/2)*z/(FOCAL_LENGTH*IMAGE_SCALE);
-			glm::vec3 canvasTo3D = {x,y,z};
+			glm::vec3 canvasTo3D = CAMERA_ORIENTATION*glm::vec3(x,y,z);
 			glm::vec3 rdFromCamera = canvasTo3D - CAMERA_POSITION;
 			RayTriangleIntersection rayFromCamera = getClosestIntersection(CAMERA_POSITION, rdFromCamera, modelTriangles);
 			size_t indexC = rayFromCamera.triangleIndex;
@@ -744,56 +697,48 @@ void drawSphereGouraud(DrawingWindow &window, std::string OBJFileName){
 				glm::vec3 rdFromLightPoint = intersectionPointC - LIGHT_POINT;
 				RayTriangleIntersection rayFromLightPoint = getClosestIntersection(LIGHT_POINT, rdFromLightPoint, modelTriangles);
 				size_t indexL = rayFromLightPoint.triangleIndex;
-				float brightness_min = 0.1;
-				// glm::vec3 normal = interpolateNormal(intersectionPointC, rayFromCamera, verticesNormals);
-				
-					std::array<glm::vec3,3> normals = verticesNormals[indexL];
-					std::vector<float> bs;
-					glm::vec3 brightnesses;
-					for (int i = 0; i < 3; i++){
-						float proximity = getProximity(rayFromLightPoint);
-						float angleOfIncidence = getAngleOfIncidence(-1*rdFromLightPoint, normals[i]);
-						float specular = getSpecular(rdFromLightPoint, rdFromCamera, normals[i]);
-						
-						float b = glm::clamp(proximity*angleOfIncidence+specular,brightness_min, 1.f);
-						// float b = glm::clamp(proximity+brightness_min, 0.f, 1.f);
-						// float b = glm::clamp(proximity*angleOfIncidence, brightness_min, 1.f);
-						// float b = glm::clamp(specular, brightness_min, 1.f);
-						// float b = glm::clamp(angleOfIncidence, brightness_min, 1.f);
-						bs.push_back(b);
-					} 
-					brightnesses.x = bs[0];
-					brightnesses.y = bs[1];
-					brightnesses.z = bs[2];
-					std::cout<<glm::to_string(brightnesses) << std::endl;
-					float brightness = interpolateBrightness(rayFromLightPoint.intersectionPoint, rayFromCamera, brightnesses);
-					Colour c = {255,0,0};
-					// if (indexC !=indexL) brightness = brightness_min;
-					int r = round(static_cast<float>(c.red) * brightness);
-					uint32_t color = (255 << 24) + (r << 16) + (c.green << 8) + c.blue;
-					window.setPixelColour(j, i, color);
-				
+				float brightness_min = 0.3;
+				std::array<glm::vec3,3> normals = verticesNormals[indexL];
+				std::vector<float> bs;
+				glm::vec3 brightnesses;
+				for (int i = 0; i < 3; i++){
+					float proximity = getProximity(rayFromLightPoint);
+					float angleOfIncidence = getAngleOfIncidence(-1*rdFromLightPoint, normals[i]);
+					float specular = getSpecular(rdFromLightPoint, rdFromCamera, normals[i]);
+					float b = glm::clamp(proximity*angleOfIncidence+specular,brightness_min, 1.f);
+					bs.push_back(b);
+				} 
+				brightnesses.x = bs[0];
+				brightnesses.y = bs[1];
+				brightnesses.z = bs[2];
+				float brightness = interpolateBrightness(rayFromLightPoint.intersectionPoint, rayFromCamera, brightnesses);
+				Colour c = {255,0,0};
+				if (indexC !=indexL) brightness = brightness_min;
+				int r = round(static_cast<float>(c.red) * brightness);
+				uint32_t color = (255 << 24) + (r << 16) + (c.green << 8) + c.blue;
+				window.setPixelColour(j, i, color);
 			}
 		}
 	}
 }
 
 void handleEvent(SDL_Event event, DrawingWindow &window) {
+
 	Colour color = {rand()%255, rand()%255, rand()%255};
 	if (event.type == SDL_KEYDOWN) {
 		// Lab 5 Task 3 changed to manipulate camera position
 		if (event.key.keysym.sym == SDLK_LEFT){
-			cameraMoving(window, 0.17, 0);
+			cameraMoving(window, 0.07, 0);
 		} else if (event.key.keysym.sym == SDLK_RIGHT){
-			cameraMoving(window, -0.17, 0);
+			cameraMoving(window, -0.07, 0);
 		} else if (event.key.keysym.sym == SDLK_UP){
-			cameraMoving(window, 0.17, 1);
+			cameraMoving(window, 0.07, 1);
 		} else if (event.key.keysym.sym == SDLK_DOWN){
-			cameraMoving(window, -0.17, 1);
+			cameraMoving(window, -0.07, 1);
 		} else if (event.key.keysym.sym == 'j'){
-			cameraMoving(window, 0.17, 2);
+			cameraMoving(window, 0.07, 2);
 		} else if (event.key.keysym.sym == 'l'){
-			cameraMoving(window, -0.17, 2);
+			cameraMoving(window, -0.07, 2);
 		}
 		// Lab 5 Task 3 rotate
 		// Rotation about Y
@@ -803,12 +748,14 @@ void handleEvent(SDL_Event event, DrawingWindow &window) {
 									0, 1, 0, 
 									sine, 0, cosine);
 			cameraRotation(m,window);
+			rasterisedRender(window);
 		} else if (event.key.keysym.sym == 'd'){
 			// rotate to left
 			glm::mat3 m = glm::mat3(cosine,0, sine, 
 									0, 1, 0, 
 									-1*sine, 0, cosine);
-			cameraRotation(m,window);		
+			cameraRotation(m,window);
+			rasterisedRender(window);		
 		}
 		// Rotation about X
 		else if (event.key.keysym.sym == 'w'){
@@ -817,15 +764,50 @@ void handleEvent(SDL_Event event, DrawingWindow &window) {
 									0, cosine, sine, 
 									0, -1*sine, cosine);
 			cameraRotation(m,window);
+			rasterisedRender(window);
 		} else if (event.key.keysym.sym == 's'){
 			// rotate upwards
 			glm::mat3 m = glm::mat3(1,0, 0, 
 									0, cosine, -1*sine, 
 									0, sine, cosine);
 			cameraRotation(m,window);
+			rasterisedRender(window);
 		} else if (event.key.keysym.sym == 'r'){
 			orbit(window,event);
 		}
+		// For raytracing model
+		// Rotation about Y
+		// else if (event.key.keysym.sym == 'a'){
+		// 	// rotate to right
+		// 	glm::mat3 m = glm::mat3(cosine,0, -1*sine, 
+		// 							0, 1, 0, 
+		// 							sine, 0, cosine);
+		// 	cameraRotation(m,window);
+		// 	rayTracingRasterisedScene(window, "textured-cornell-box.obj");
+		// } else if (event.key.keysym.sym == 'd'){
+		// 	// rotate to left
+		// 	glm::mat3 m = glm::mat3(cosine,0, sine, 
+		// 							0, 1, 0, 
+		// 							-1*sine, 0, cosine);
+		// 	cameraRotation(m,window);
+		// 	rayTracingRasterisedScene(window, "textured-cornell-box.obj");
+		// }
+		// // Rotation about X
+		// else if (event.key.keysym.sym == 'w'){
+		// 	// rotate downwards
+		// 	glm::mat3 m = glm::mat3(1,0, 0, 
+		// 							0, cosine, sine, 
+		// 							0, -1*sine, cosine);
+		// 	cameraRotation(m,window);
+		// 	rayTracingRasterisedScene(window, "textured-cornell-box.obj");
+		// } else if (event.key.keysym.sym == 's'){
+		// 	// rotate upwards
+		// 	glm::mat3 m = glm::mat3(1,0, 0, 
+		// 							0, cosine, -1*sine, 
+		// 							0, sine, cosine);
+		// 	cameraRotation(m,window);
+		// 	rayTracingRasterisedScene(window, "textured-cornell-box.obj");
+		// }
 		// Lab 3 Task 3
 		else if (event.key.keysym.sym == 'u') {
 			Colour color = {rand()%255, rand()%255, rand()%255};
@@ -834,17 +816,7 @@ void handleEvent(SDL_Event event, DrawingWindow &window) {
 		} else if (event.key.keysym.sym == 'f') {
 			CanvasTriangle triangle = generateRandomTriangle(window);
 			drawFilledTriangle(window, triangle, color);
-		} else if (event.key.keysym.sym == 't') {
-			// Lab 3 Task 5/6
-			CanvasPoint v0 = CanvasPoint(160,10);
-			CanvasPoint v1 = CanvasPoint(300,230);
-			CanvasPoint v2 = CanvasPoint(10,150);
-			v0.texturePoint = TexturePoint(195, 5);
-			v1.texturePoint = TexturePoint(395, 380);
-			v2.texturePoint = TexturePoint(65, 330);
-			TextureMap textureMap = TextureMap("texture.ppm");
-			drawTextureTriangle(window, v0, v1, v2, textureMap);
-		}
+		} 
 		// Lab 6 Task 7
 		else if (event.key.keysym.sym == 'z'){
 			window.clearPixels();
@@ -856,10 +828,35 @@ void handleEvent(SDL_Event event, DrawingWindow &window) {
 			window.clearPixels();
 			rayTracingRasterisedScene(window, "cornell-box.obj");
 		}
+		else if (event.key.keysym.sym == 't') {
+			window.clearPixels();
+			rayTracingRasterisedScene(window, "textured-cornell-box.obj");
+		}
+		else if (event.key.keysym.sym == 'p'){
+			window.clearPixels();
+			LIGHT_POINT = {-0.6, 1.0, 1.4};
+			drawSpherePhong(window, "sphere.obj");
+		}
+		else if (event.key.keysym.sym == '0'){
+			window.clearPixels();
+			CAMERA_POSITION[2]+=0.25;
+			wireframeRender(window);
+		}
+		else if (event.key.keysym.sym == 'g'){
+			window.clearPixels();
+			LIGHT_POINT = {-0.6, 1.0, 1.4};
+			drawSphereGouraud(window, "sphere.obj");
+		}else if (event.key.keysym.sym == '1') {
+			window.clearPixels();
+			cameraMoving(window, -0.07, 2);
+			rayTracingRasterisedScene(window, "textured-cornell-box.obj");
+		}
 
 	} else if (event.type == SDL_MOUSEBUTTONDOWN) {
-		window.savePPM("output.ppm");
+		std::string as = std::to_string(a);
+		window.savePPM("./outputs/"+as+".ppm");
 		window.saveBMP("output.bmp");
+		a++;
 	}
 }
 
@@ -873,8 +870,7 @@ int main(int argc, char *argv[]) {
 	// drawSpherePhong(window, "sphere.obj");
 	// drawSphereGouraud(window, "sphere.obj");
 	// rayTracingRasterisedScene(window, "cornell-box.obj");
-	rayTracingRasterisedScene(window, "textured-cornell-box.obj");
-	// drawTexturedScene(window, "textured-cornell-box.obj");
+	// rayTracingRasterisedScene(window, "textured-cornell-box.obj");
 	while (true) {
 		// We MUST poll for events - otherwise the window will freeze !
 		if (window.pollForInputEvents(event)) handleEvent(event, window);
